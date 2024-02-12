@@ -14,8 +14,10 @@ struct Edge
 {
 int bnode;
 int enode;
+int sign;
 std::vector<int> faces;
-Edge(int n1, int n2):bnode(n1),enode(n2){};
+Edge(int n1, int n2):bnode(n1),enode(n2){sign = 1;};
+Edge(){sign=1;};
 };
 typedef std::vector<Edge> edge_grid;
 
@@ -137,7 +139,7 @@ int main()
 {
     int ix, iy, iz;
     int j;
-    Mesh m(4,4,4,0.1,0.1,0.1);
+    Mesh m(3,3,3,0.1,0.1,0.1);
     // make nodes
     for(int i = 0; i<m.Nx*m.Ny*m.Nz; i++)
     {
@@ -243,15 +245,50 @@ int main()
             M[i][j] = 0.0;
         }      
     }
-    
+    int next_node;
+    std::vector<int> tmp_edge_array;
+
     for(int i=0; i < m.eg.size();i++)
     {
+        next_node = m.eg[i].enode;
+        m.eg[i].sign = 1;
+
         for(int j = 0; j < m.eg[i].faces.size(); j++)
         {
+            tmp_edge_array.clear();
             for(int k = 0; k < m.fg[m.eg[i].faces[j]].edges.size(); k++)
                 {
                     int edge_index = m.fg[m.eg[i].faces[j]].edges[k];
-                    M[i][edge_index] += 1.0;
+                    if(edge_index != i)
+                        tmp_edge_array.push_back(edge_index);
+            }
+            // determine edge orientation in the current face
+            while (tmp_edge_array.size()>0)
+            {
+                for(int k = 0; k < tmp_edge_array.size(); k++)
+                {
+                    if(m.eg[tmp_edge_array[k]].bnode == next_node || m.eg[tmp_edge_array[k]].enode == next_node)
+                    {
+                        if(m.eg[tmp_edge_array[k]].bnode == next_node)
+                        {
+                            m.eg[tmp_edge_array[k]].sign = 1;
+                            next_node = m.eg[tmp_edge_array[k]].enode;
+                        }
+                        else
+                        {
+                            m.eg[tmp_edge_array[k]].sign = -1;
+                            next_node = m.eg[tmp_edge_array[k]].bnode;
+                        }
+                        tmp_edge_array.erase(tmp_edge_array.begin() + k); 
+                        break;
+                    }
+                }
+            }
+
+            for(int k = 0; k < m.fg[m.eg[i].faces[j]].edges.size(); k++)
+                {
+                    int edge_index = m.fg[m.eg[i].faces[j]].edges[k];
+                    M[i][edge_index] += m.eg[edge_index].sign;
                 }
         }
     }
