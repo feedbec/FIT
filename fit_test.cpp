@@ -1,11 +1,18 @@
 #include<vector>
 #include<iostream>
+#include<cmath>
+#include <fstream>
+#include "Eigen/Sparse"
 
 struct Node
 {
     double glob_loc[3];
     std::vector<int> edges;
-    Node(double x, double y, double z){glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z;};
+    double mu;
+    Node(double x, double y, double z)
+    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; mu = 1.0;};
+    Node(double x, double y, double z, double mu0)
+    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; mu = mu0;};
 
 };
 typedef std::vector<Node> grid;
@@ -15,18 +22,21 @@ struct Edge
 int bnode;
 int enode;
 int sign;
+int set_id;
+double Val;
 std::vector<int> faces;
-Edge(int n1, int n2):bnode(n1),enode(n2){sign = 1;};
-Edge(){sign=1;};
+Edge(int n1, int n2):bnode(n1),enode(n2)
+{sign = 1; Val = 0.0; set_id = 0;};
+Edge(){sign=1; Val = 0.0; set_id = 0;};
 };
 typedef std::vector<Edge> edge_grid;
 
 struct Face
 {
     std::vector<int> edges;
-    int edge_dual; // if negative then this is the boundary face
-    Face(){};
-    Face(const std::vector<int>&a):edges(a){};
+    double mu;
+    Face(){mu = 1.0;};
+    Face(const std::vector<int>&a, double mu0):edges(a){mu = mu0;};
 };
 typedef std::vector<Face> face_grid;
 
@@ -139,14 +149,17 @@ int main()
 {
     int ix, iy, iz;
     int j;
-    Mesh m(3,3,3,0.1,0.1,0.1);
+    Mesh m(101,101,101,0.01,0.01,0.01);
     // make nodes
     for(int i = 0; i<m.Nx*m.Ny*m.Nz; i++)
-    {
+    {   
         m.lin2vol(i,ix,iy,iz);
-        m.g.push_back(Node(m.dx*ix, m.dy*iy, m.dz*iz));
+        if(ix*m.dx > 0.6)
+            m.g.push_back(Node(m.dx*ix, m.dy*iy, m.dz*iz, 1.0));
+        else
+            m.g.push_back(Node(m.dx*ix, m.dy*iy, m.dz*iz));   
     }
-// make edges
+    // make edges
     for(int i = 0; i<m.Nx*m.Ny*m.Nz; i++)
     {
         m.lin2vol(i,ix,iy,iz);
@@ -185,8 +198,12 @@ int main()
             node_list.push_back(j1);
             node_list.push_back(j2);
             node_list.push_back(j3);
+            double mu = 0.0;
+            for(int k = 0; k < node_list.size(); k++)
+                mu += m.g[node_list[k]].mu;
+            mu = mu/node_list.size();
             m.common_edges(node_list, edge_list);
-            m.fg.push_back(Face(edge_list));
+            m.fg.push_back(Face(edge_list, mu));
             for (int j = 0; j < edge_list.size(); j++)
             {
                 m.eg[edge_list[j]].faces.push_back(m.fg.size()-1);
@@ -201,8 +218,12 @@ int main()
             node_list.push_back(j1);
             node_list.push_back(j2);
             node_list.push_back(j3);
+            double mu = 0.0;
+            for(int k = 0; k < node_list.size(); k++)
+                mu += m.g[node_list[k]].mu;
+            mu = mu/node_list.size();
             m.common_edges(node_list, edge_list);
-            m.fg.push_back(Face(edge_list));
+            m.fg.push_back(Face(edge_list, mu));
             for (int j = 0; j < edge_list.size(); j++)
             {
                 m.eg[edge_list[j]].faces.push_back(m.fg.size()-1);
@@ -217,8 +238,12 @@ int main()
             node_list.push_back(j1);
             node_list.push_back(j2);
             node_list.push_back(j3);
+            double mu = 0.0;
+            for(int k = 0; k < node_list.size(); k++)
+                mu += m.g[node_list[k]].mu;
+            mu = mu/node_list.size();
             m.common_edges(node_list, edge_list);
-            m.fg.push_back(Face(edge_list));
+            m.fg.push_back(Face(edge_list, mu));
             for (int j = 0; j < edge_list.size(); j++)
             {
                 m.eg[edge_list[j]].faces.push_back(m.fg.size()-1);
@@ -229,30 +254,32 @@ int main()
     std::vector<int> boundary_edges;
     std::vector<int> non_boundary_edges;
 
-    for(int i = 0; i<m.eg.size();i++)
+    for(int i = 0; i<m.eg.size(); i++)
     {
-        if(m.eg[i].faces.size() >= 4)
+        if(m.eg[i].faces.size() >= 4){
             non_boundary_edges.push_back(i);
+            m.eg[i].set_id=non_boundary_edges.size()-1;// set the number of the edge in non_boundary array
+        }
         else
             boundary_edges.push_back(i);
     }
+
     // assemble matrix
-    double M[m.eg.size()][m.eg.size()];
-    for (int i = 0; i < m.eg.size(); i++)
-    {
-        for (int j = 0; j < m.eg.size(); j++)
-        {
-            M[i][j] = 0.0;
-        }      
-    }
+    std::cout<<"start matrix assembly..."<<std::endl;
+
+    typedef Eigen::SparseMatrix<double> SpMat; // declares a column-major sparse matrix type of double
+    typedef Eigen::Triplet<double> T;
+    std::vector<T> coefficients;
+
     int next_node;
     std::vector<int> tmp_edge_array;
-
-    for(int i=0; i < m.eg.size();i++)
+// run over non_boundary edges only
+    for(int i_nd=0; i_nd < non_boundary_edges.size();i_nd++)
     {
+        int i = non_boundary_edges[i_nd];
         next_node = m.eg[i].enode;
-        m.eg[i].sign = 1;
-
+       // m.eg[i].sign = 1;
+        coefficients.push_back(T(i_nd,i_nd,m.eg[i].faces.size()));
         for(int j = 0; j < m.eg[i].faces.size(); j++)
         {
             tmp_edge_array.clear();
@@ -288,24 +315,85 @@ int main()
             for(int k = 0; k < m.fg[m.eg[i].faces[j]].edges.size(); k++)
                 {
                     int edge_index = m.fg[m.eg[i].faces[j]].edges[k];
-                    M[i][edge_index] += m.eg[edge_index].sign;
+                    if(edge_index != i)
+                    {     
+                        double coeff_value = m.eg[edge_index].sign/m.fg[m.eg[i].faces[j]].mu;
+                        coefficients.push_back(T(i_nd,m.eg[edge_index].set_id, coeff_value));
+                    }
                 }
         }
     }
-    // remove boundary edges from matrix
-    double M2[non_boundary_edges.size()][non_boundary_edges.size()];
-    for(int i=0; i<non_boundary_edges.size(); i++)
-        for(int j=0;j<non_boundary_edges.size();j++)
-            M2[i][j] = M[non_boundary_edges[i]][non_boundary_edges[j]]; 
+    SpMat Anb(non_boundary_edges.size(),non_boundary_edges.size());
+    Anb.setFromTriplets(coefficients.begin(), coefficients.end());
 
-    
+    //set load vector
+    Eigen::VectorXd b(non_boundary_edges.size()); 
+    std::cout << "start loads..." << std::endl;
     for (int i = 0; i < non_boundary_edges.size(); i++)
     {
-        for (int j = 0; j < non_boundary_edges.size(); j++)
+        double x0 = m.g[m.eg[non_boundary_edges[i]].bnode].glob_loc[0];
+        double y0 = m.g[m.eg[non_boundary_edges[i]].bnode].glob_loc[1];
+        double z0 = m.g[m.eg[non_boundary_edges[i]].bnode].glob_loc[2];
+        double x1 = m.g[m.eg[non_boundary_edges[i]].enode].glob_loc[0];
+        double y1 = m.g[m.eg[non_boundary_edges[i]].enode].glob_loc[1];
+        double z1 = m.g[m.eg[non_boundary_edges[i]].enode].glob_loc[2];
+        double pos = std::sqrt((x0-0.5)*(x0-0.5) + (y0-0.5)*(y0-0.5) );
+
+        if(pos <0.005 && std::fabs(z0-z1) > 0.005)
         {
-            std::cout<<M2[i][j]<<" ";
-        }
-        std::cout<<std::endl;      
+            if(z1>z0)
+                b(i) = 1.0;
+            else
+                b(i) = -1.0;
+
+            std::cout << i <<" "<<b(i) << std::endl;
+        }        
+        else
+            b(i) = 0.0;
     }
- return 0;
+
+ // solving
+    std::cout << "start BiCGSTAB ..." << std::endl;
+ 
+    Eigen::BiCGSTAB<SpMat> solver;
+    solver.compute(Anb);
+
+    Eigen::VectorXd x = solver.solve(b);
+    std::cout << "#iterations:     " << solver.iterations() << std::endl;
+    std::cout << "estimated error: " << solver.error()      << std::endl;
+    for (int i = 0; i < non_boundary_edges.size(); i++)
+    {
+        m.eg[non_boundary_edges[i]].Val = x(i);
+    }
+    
+    //write vector potential in file
+    std::ofstream MyFile("Afile_no_mag.txt");
+
+    for (int i = 0; i < m.g.size(); i++)
+    {
+        double Ax = 0.0;
+        double Ay = 0.0;
+        double Az = 0.0;
+
+        for(int j = 0; j< m.g[i].edges.size();j++)
+        {
+            int edge_index = m.g[i].edges[j];
+            double x0 = m.g[m.eg[edge_index].bnode].glob_loc[0];
+            double y0 = m.g[m.eg[edge_index].bnode].glob_loc[1];
+            double z0 = m.g[m.eg[edge_index].bnode].glob_loc[2];
+            double x1 = m.g[m.eg[edge_index].enode].glob_loc[0];
+            double y1 = m.g[m.eg[edge_index].enode].glob_loc[1];
+            double z1 = m.g[m.eg[edge_index].enode].glob_loc[2];
+            double L = std::sqrt((x1-x0)*(x1-x0)+(y1-y0)*(y1-y0)+(z1-z0)*(z1-z0)); 
+            Ax += std::abs(m.eg[edge_index].Val)*(x1-x0)/L;
+            Ay += std::abs(m.eg[edge_index].Val)*(y1-y0)/L;
+            Az += std::abs(m.eg[edge_index].Val)*(z1-z0)/L;
+        }
+        MyFile<<m.g[i].glob_loc[0]<<","<<m.g[i].glob_loc[1]<<","<<m.g[i].glob_loc[2]
+        <<","<< Ax <<","<< Ay <<","<< Az <<std::endl; 
+    }
+    // Close the file
+    MyFile.close();
+    std::cout<<"Done!"<<std::endl;
+    return 0;
 }
