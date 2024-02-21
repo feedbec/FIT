@@ -1,150 +1,6 @@
-#include<vector>
-#include<iostream>
-#include<cmath>
-#include <fstream>
 #include "Eigen/Sparse"
+#include "mesh_op.hpp"
 
-struct Node
-{
-    double glob_loc[3];
-    std::vector<int> edges;
-    double mu;
-    Node(double x, double y, double z)
-    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; mu = 1.0;};
-    Node(double x, double y, double z, double mu0)
-    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; mu = mu0;};
-
-};
-typedef std::vector<Node> grid;
-
-struct Edge
-{
-int bnode;
-int enode;
-int sign;
-int set_id;
-double Val;
-std::vector<int> faces;
-Edge(int n1, int n2):bnode(n1),enode(n2)
-{sign = 1; Val = 0.0; set_id = 0;};
-Edge(){sign=1; Val = 0.0; set_id = 0;};
-};
-typedef std::vector<Edge> edge_grid;
-
-struct Face
-{
-    std::vector<int> edges;
-    double mu;
-    Face(){mu = 1.0;};
-    Face(const std::vector<int>&a, double mu0):edges(a){mu = mu0;};
-};
-typedef std::vector<Face> face_grid;
-
-struct Cell
-{
-    std::vector<int> faces;
-    std::vector<int> next_cells;
-};
-
-struct Mesh
-{
-    int Nx, Ny, Nz;
-    double dx,dy,dz;
-    grid g;
-    edge_grid eg;
-    face_grid fg;
-
-    Mesh(int Nx0, int Ny0, int Nz0, double dx0, double dy0, double dz0):Nx(Nx0),
-    Ny(Ny0),Nz(Nz0),dx(dx0),dy(dy0),dz(dz0){};
-    void lin2vol(int j, int & ix, int & iy, int &iz);
-    void vol2lin(int ix, int iy, int iz, int & j);
-    void print_nodes();
-    void print_edges();
-    void print_faces();
-    void common_edges(const std::vector<int>& node_list, std::vector<int>& edge_list);
-};
-
-void Mesh::print_faces()
-{
-    for (int i = 0; i < fg.size(); i++)
-    {
-        std::cout<< i <<" ";
-        for (int j = 0; j < fg[i].edges.size(); j++)
-        {
-            std::cout<<fg[i].edges[j]<<" ";
-        }
-        std::cout<<std::endl;
-    }
-    
-}
-void Mesh::print_edges()
-{
-    for (int i = 0; i < eg.size(); i++)
-    {
-        std::cout<<i<<" nodes: "<<eg[i].bnode<<" "<<eg[i].enode<<" faces: ";
-        for (int j = 0; j < eg[i].faces.size(); j++)
-        {
-            std::cout<<eg[i].faces[j]<<" ";
-        }
-        std::cout<<std::endl;
-    }
-    
-}
-
-void Mesh::print_nodes()
-{
-    for (int i = 0; i < g.size(); i++)
-    {
-        std::cout<<i<<" "<<g[i].glob_loc[0]<<" "
-        <<g[i].glob_loc[1]<<" "<<g[i].glob_loc[2]<<" ";
-        for(int j=0; j<g[i].edges.size(); j++)
-            std::cout<<g[i].edges[j]<<" ";
-        std::cout<<std::endl;
-    }
-    
-}
-void Mesh::common_edges(const std::vector<int>& node_list, std::vector<int>& edge_list)
-{   
-    edge_list.clear();
-    std::vector<int> pool;
-    for(int i = 0; i< g[node_list[0]].edges.size(); i++)
-        pool.push_back(g[node_list[0]].edges[i]);
-    
-    for(int i=1; i<node_list.size();i++)
-    {
-        int pool_size = pool.size();
-        for(int j = 0; j <g[node_list[i]].edges.size(); j++)
-        {
-            bool in_pool = false;
-            for(int k = 0; k< pool_size; k++)
-            {
-                if (g[node_list[i]].edges[j] == pool[k])
-                {
-                    edge_list.push_back(pool[k]);
-                    in_pool = true;
-                    break;
-                }
-            }
-            if(!in_pool)
-            {
-                pool.push_back(g[node_list[i]].edges[j]);
-            }
-
-        }
-    }
-}
-
-void Mesh::lin2vol(int i, int & ix, int & iy, int &iz)
-{
-    ix= i/Nz/Ny;
-    iy = (i - Nz*Ny*ix)/Nz;
-    iz = i - Nz*Ny*ix - Nz*iy;
-}
-void Mesh::vol2lin(int ix, int iy, int iz, int & j)
-{
-    j = ix*Nz*Ny + iy*Nz + iz;
-}
-    
 int main()
 {
     int ix, iy, iz;
@@ -155,7 +11,7 @@ int main()
     {   
         m.lin2vol(i,ix,iy,iz);
         if(ix*m.dx > 0.6)
-            m.g.push_back(Node(m.dx*ix, m.dy*iy, m.dz*iz, 1.0));
+            m.g.push_back(Node(m.dx*ix, m.dy*iy, m.dz*iz, 1000.0));
         else
             m.g.push_back(Node(m.dx*ix, m.dy*iy, m.dz*iz));   
     }
@@ -367,7 +223,7 @@ int main()
     }
     
     //write vector potential in file
-    std::ofstream MyFile("Afile_no_mag.txt");
+    std::ofstream MyFile("Afile.txt");
 
     for (int i = 0; i < m.g.size(); i++)
     {
