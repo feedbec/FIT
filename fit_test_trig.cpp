@@ -6,7 +6,7 @@ int main()
     Mesh m1;
     std::vector<int> combo_list;
 
-    if (m1.readmesh("test.msh"))
+    if (m1.readmesh("magnet.msh"))
 	    {
 		    std::cout << "Mesh read: OK!" << std::endl;
 	}
@@ -72,11 +72,67 @@ int main()
             m1.fg[face_number].cells.push_back(i);
         }   
     }
-    for(int i = 0; i <m1.fg.size(); i++)
+    for(int i = 0; i <m1.fg.size(); i++)// calculate face norm(orientation) & detect boundary type
+    {
         m1.calc_face_norm(i);
-    
-    m1.print_faces();
-    m1.writemesh("test_out.vtk");
+        if(m1.fg[i].cells.size() == 2)
+            if(m1.cg[m1.fg[i].cells[0]].tag == m1.cg[m1.fg[i].cells[1]].tag)
+                m1.fg[i].boundary_type = 0;
+            else
+                m1.fg[i].boundary_type = 2;
+        else
+            m1.fg[i].boundary_type = 1;
+    }    
+    // apply loads to edges 
+    for(int i = 0; i<m1.cg.size(); i++)
+    {
+        if(m1.cg[i].tag == 2)
+        {
+            for(int j = 0; j<m1.cg[i].faces.size(); j++)
+                for(int k = 0; k<m1.fg[m1.cg[i].faces[j]].edges.size(); k++)
+                {
+                    int node1 = m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].bnode;
+                    int node2 = m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].enode;
+                    std::vector<double> edge_dir;
+                    std::vector<double> load_dir={0.0,0.0,1.0}; //this is the value and direction of current density
+                    for(int q = 0; q<3; q++)
+                        edge_dir.push_back(m1.g[node2].glob_loc[q]-m1.g[node1].glob_loc[q]);
+                    vec_norm(edge_dir);
+                    sc_prod(edge_dir, load_dir, m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].Load);
+                }
+        }
+    }
+
+    // just for test 
+    for(int i = 0; i <m1.fg.size(); i++)
+    {
+        for(int j=0; j<m1.fg[i].edges.size(); j++)
+        {
+            int node_num1 = m1.eg[m1.fg[i].edges[j]].bnode;
+            int node_num2 = m1.eg[m1.fg[i].edges[j]].enode;
+            m1.g[node_num1].phi += m1.fg[i].boundary_type;
+            m1.g[node_num2].phi += m1.fg[i].boundary_type;
+        }
+    }
+    for (int i = 0; i < m1.g.size(); i++)
+    {
+        for (int j = 0; j < m1.g[i].edges.size(); j++)
+        {
+            std::vector<double> edir;
+            double value = m1.eg[m1.g[i].edges[j]].Load;
+            m1.global_edge_dir(m1.g[i].edges[j], edir);
+            m1.g[i].A[0] += edir[0]*value;
+            m1.g[i].A[1] += edir[1]*value; 
+            m1.g[i].A[2] += edir[2]*value; 
+        }
+        
+    }
+
+
+
+
+    //m1.print_faces();
+    m1.writemesh("magnet_out.vtk");
 
 
  /* solving

@@ -8,12 +8,10 @@ struct Node
 {
     double glob_loc[3];
     std::vector<int> edges;
-    double mu;
+    double phi;
+    double A[3];
     Node(double x, double y, double z)
-    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; mu = 1.0;};
-    Node(double x, double y, double z, double mu0)
-    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; mu = mu0;};
-
+    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; phi = 0.0; A[0]=A[1]=A[2]=0.0;};
 };
 typedef std::vector<Node> grid;
 
@@ -21,13 +19,12 @@ struct Edge
 {
 int bnode;
 int enode;
-int sign;
-int set_id;
 double Val;
+double Load;
 std::vector<int> faces;
 Edge(int n1, int n2):bnode(n1),enode(n2)
-{sign = 1; Val = 0.0; set_id = 0;};
-Edge(){sign=1; Val = 0.0; set_id = 0;};
+{Val = 0.0; Load = 0.0;};
+Edge(){Val = 0.0; Load = 0.0;};
 };
 typedef std::vector<Edge> edge_grid;
 
@@ -36,6 +33,7 @@ struct Face
     std::vector<int> edges;
     std::vector<int> cells;
     std::vector<double> dS;
+    int boundary_type; // 1-outer boundary, 0-inside block, 2-outer boundary
     Face(){};
     Face(const std::vector<int>&a):edges(a){};
 };
@@ -69,8 +67,8 @@ struct Mesh
     int is_face(const std::vector<int>& edge_list);
     int is_edge(int N1, int N2); 
     void calc_face_norm(int i);
+    void global_edge_dir(int edge_num, std::vector<double> & v);
 };
-
 
 std::vector<std::string> split(const std::string &s, char delim);
 void int2bin(int N, std::vector<int> & bin_representation);
@@ -80,7 +78,8 @@ void vec_prod05(const std::vector<double> & v1, const std::vector<double> & v2,
 std::vector<double> & dS);
 void vec_prod(const std::vector<double> & v1, const std::vector<double> & v2,
 std::vector<double> & dS);
-
+void sc_prod(const std::vector<double> & v1, const std::vector<double> & v2, double & result);
+void vec_norm(std::vector<double> & v2);
 
 void Mesh::print_faces()
 {
@@ -268,19 +267,23 @@ bool Mesh::writemesh(std::string filename)
 			newfile << 10 << std::endl;
 		newfile << std::endl;
 		newfile << "POINT_DATA " << g.size() << std::endl;
-		newfile << "SCALARS scalars float" << std::endl;
+		newfile << "SCALARS scalar_potential float" << std::endl;
 		newfile << "LOOKUP_TABLE default" << std::endl;
 		for (size_t i = 0; i < g.size(); i++)
-			newfile << 1.23 << std::endl;
-		newfile.close();
+			newfile << g[i].phi << std::endl;
+		// print vector data
+        newfile << std::endl;
+		newfile << "VECTORS Vector_potential float" << std::endl;
+		for (size_t i = 0; i < g.size(); i++)
+			newfile << g[i].A[0]<<" "<< g[i].A[1]<<" " << g[i].A[2] << std::endl;	
+        newfile.close();
 		return true;
 	}
 	else
 		return false;
 }
 
-
-
+//void Mesh::edge2node(const std::vector<double> & Edge_data, std::vector<vector<double>> & Node_data)
 
 
 
@@ -394,4 +397,32 @@ std::vector<double> & dS)
     dS.push_back(0.5*(v1[1]*v2[2]-v1[2]*v2[1]));
     dS.push_back(0.5*(-v1[0]*v2[2]+v1[2]*v2[0]));
     dS.push_back(0.5*(v1[0]*v2[1]-v1[1]*v2[0]));
+}
+
+void sc_prod(const std::vector<double> & v1, const std::vector<double> & v2, double & result)
+{
+    result = 0;
+    for(int i = 0; i<v1.size(); i++)
+        result += v1[i]*v2[i];
+}
+
+void vec_norm(std::vector<double> & v2)
+{
+    double norm = 0.0;
+    sc_prod(v2,v2,norm);
+    for (int i = 0; i < v2.size(); i++)
+    {
+        v2[i] = v2[i]/sqrt(norm);
+    }   
+}
+
+void Mesh::global_edge_dir(int edge_num, std::vector<double> & v)
+{
+    v.clear();
+    int node1 = eg[edge_num].bnode;
+    int node2 = eg[edge_num].enode;
+
+    for(int q = 0; q<3; q++)
+        v.push_back(g[node2].glob_loc[q]-g[node1].glob_loc[q]);
+    vec_norm(v);
 }
