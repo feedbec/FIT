@@ -22,9 +22,10 @@ int enode;
 double Val;
 double Load;
 std::vector<int> faces;
+int range_position;
 Edge(int n1, int n2):bnode(n1),enode(n2)
-{Val = 0.0; Load = 0.0;};
-Edge(){Val = 0.0; Load = 0.0;};
+{Val = 0.0; Load = 0.0; range_position = -1;};
+Edge(){Val = 0.0; Load = 0.0; range_position = -1;};
 };
 typedef std::vector<Edge> edge_grid;
 

@@ -102,6 +102,21 @@ int main()
                 }
         }
     }
+// create a range of non-boundary edges
+    std::vector<int> non_boundary_edges;
+    for(int i = 0; i<m1.eg.size();i++)
+    {
+        for(int j=0; j<m1.eg[i].faces.size(); j++)
+        {
+            if(m1.fg[m1.eg[i].faces[j]].boundary_type != 1)
+            {
+                non_boundary_edges.push_back(i);
+                m1.eg[i].range_position = non_boundary_edges.size()-1;
+                break;
+            }
+        }
+    }
+
 
     // just for test 
     for(int i = 0; i <m1.fg.size(); i++)
