@@ -3,6 +3,7 @@
 #include<cmath>
 #include <fstream>
 #include <sstream>
+#include <limits>
 
 struct Node
 {
@@ -57,7 +58,6 @@ struct Mesh
     edge_grid eg;
     face_grid fg;
     cell_grid cg;
-
     Mesh(){};
     void print_nodes();
     void print_edges();
@@ -68,10 +68,13 @@ struct Mesh
     int is_face(const std::vector<int>& edge_list);
     int is_edge(int N1, int N2); 
     void calc_face_norm(int i);
-    void global_edge_dir(int edge_num, std::vector<double> & v);
+    void edge_direction(int edge_num, std::vector<double> & v);
     void face_contribution(int edge_number,
         int face_number, double & face_contrib, double & sec_S);
     void edge_contribution(int edge_num, int face_num, double & dl);
+    void face_center(int face_number, std::vector<double> & face_center_vec);
+    void edge_center(int edge_number, std::vector<double> & edge_center_vec) ;
+    void cell_center(int cell_number, std::vector<double> & cell_center_vec) ;
 };
 
 std::vector<std::string> split(const std::string &s, char delim);
@@ -290,7 +293,6 @@ bool Mesh::writemesh(std::string filename)
 //void Mesh::edge2node(const std::vector<double> & Edge_data, std::vector<vector<double>> & Node_data)
 
 
-
 bool Mesh::readmesh(std::string filename) 
 {
 	bool node_read = false;
@@ -406,74 +408,73 @@ std::vector<double> & dS)
 void sc_prod(const std::vector<double> & v1, const std::vector<double> & v2, double & result)
 {
     result = 0;
-    for(int i = 0; i<v1.size(); i++)
+    for(int i = 0; i< v1.size(); i++)
         result += v1[i]*v2[i];
 }
 
 void vec_norm(std::vector<double> & v2)
 {
     double norm = 0.0;
+    const double TOL = std::numeric_limits< double >::min();
+
     sc_prod(v2,v2,norm);
+    if(norm < TOL)
+    {
+        std::cout<<"zero norm"<<std::endl;
+        return;
+    }
+
     for (int i = 0; i < v2.size(); i++)
     {
         v2[i] = v2[i]/sqrt(norm);
     }   
 }
 
-void Mesh::global_edge_dir(int edge_num, std::vector<double> & v)
+void Mesh::face_center(int face_number, std::vector<double> & face_center_vec)
 {
-    v.clear();
-    int node1 = eg[edge_num].bnode;
-    int node2 = eg[edge_num].enode;
-
-    for(int q = 0; q<3; q++)
-        v.push_back(g[node2].glob_loc[q]-g[node1].glob_loc[q]);
-    vec_norm(v);
-}
-
-void Mesh::face_contribution(int edge_number,
-    int face_number, double & face_contrib, double & sec_S)
-{
-    std::vector<double> edir;
-    std::vector<double> fdir;
-    global_edge_dir(edge_number, edir);
-    std::vector<double> edge_center(3);
-    std::vector<double> face_center(3);
-    std::vector<double> cell_center(3);
-    std::vector<double> edge_face(3);
-    std::vector<double> edge_cell(3);
-    std::vector<double> cell_face(3);
-    std::vector<double> sec_vec(3);
-
-
+    double q1,q2;
+    face_center_vec.clear();
     for(int i = 0; i<3; i++)
     {
-        double q1 = g[eg[edge_number].bnode].glob_loc[i];
-        double q2 = g[eg[edge_number].enode].glob_loc[i];
-        edge_center[i] = 0.5*(q2+q1);
         q1 = q2 = 0.0;
         for(int j=0; j<fg[face_number].edges.size();j++)
         {
             q1 += g[eg[fg[face_number].edges[j]].bnode].glob_loc[i];
             q2 += g[eg[fg[face_number].edges[j]].enode].glob_loc[i];
         }
-        face_center[i] = 0.5*(q1+q2)/fg[face_number].edges.size();
+        face_center_vec.push_back(0.5*(q1+q2)/fg[face_number].edges.size());
     }
-    for (int i = 0; i < 3; i++)
-    {
-        edge_face[i] = face_center[i] - edge_center[i];
-    }
-    vec_norm(edge_face);
-    vec_prod(edge_face,edir,fdir);
-    double dS;
-    sc_prod(fdir,fg[face_number].dS, dS);
+}
 
-    // calculate length of the integration path in 1-st cell
-    int cell_number = fg[face_number].cells[0];
-    double dl;
-    std::vector<double> cell_to_face(3);
-    double cosinus;
- 
+void Mesh::edge_center(int edge_number, std::vector<double> & edge_center_vec)
+{
+    double q1,q2;
+    edge_center_vec.clear();
+    for(int i = 0; i<3; i++)
+    {
+        q1 = g[eg[edge_number].bnode].glob_loc[i];
+        q2 = g[eg[edge_number].enode].glob_loc[i];
+        edge_center_vec.push_back(0.5*(q2+q1));
+    }
+}
+
+void Mesh::edge_direction(int edge_number, std::vector<double> & edge_dir_vec)
+{
+    double q1,q2;
+    edge_dir_vec.clear();
+    for(int i = 0; i<3; i++)
+    {
+        q1 = g[eg[edge_number].bnode].glob_loc[i];
+        q2 = g[eg[edge_number].enode].glob_loc[i];
+        edge_dir_vec.push_back((q2-q1));
+    }
+}
+
+void Mesh::cell_center(int cell_number, std::vector<double> & cell_center_vec)
+{
+    double q1;
+    cell_center_vec.clear();
+
     for(int i = 0; i<3; i++)
     {
         double q = 0.0;
@@ -481,23 +482,66 @@ void Mesh::face_contribution(int edge_number,
         {
             q1 += g[cg[cell_number].nodes[j]].glob_loc[i];
         }
-        cell_center[i] = (q/cg[cell_number].nodes.size());
+        cell_center_vec.push_back((q/cg[cell_number].nodes.size()));
     }
+
+}
+
+void Mesh::face_contribution(int edge_number,
+    int face_number, double & face_contrib, double & sec_S)
+{
+    if(fg[face_number].cells.size() != 2)
+    {
+        std::cout<<"Not 2 cells"<<std::endl;
+        return;
+    }
+    std::vector<double> edir_vec;
+    std::vector<double> fdir_vec;
+    std::vector<double> edge_center_vec;
+    std::vector<double> face_center_vec;
+    std::vector<double> cell_center_vec;
+    std::vector<double> edge_face;
+    std::vector<double> edge_cell;
+    std::vector<double> cell_face;
+    std::vector<double> sec_vec(3);
+
+    face_center(face_number, face_center_vec);
+    edge_center(edge_number, edge_center_vec);
+    edge_direction(edge_number, edir_vec);
+    vec_norm(edir_vec);
+
+    for (int i = 0; i < 3; i++)
+    {
+        edge_face.push_back(face_center_vec[i] - edge_center_vec[i]);
+    }
+    vec_norm(edge_face);
+    vec_prod(edge_face,edir_vec,fdir_vec);
+    double dS; //sign and area of the face corresponding to the given edge rotation direction
+    sc_prod(fdir_vec, fg[face_number].dS, dS);
+    
+    // calculate length of the circulation path in 1-st cell
+    int cell_number = fg[face_number].cells[0];
+    double dl;
+    std::vector<double> cell_to_face(3);
+    double cosinus;
+    cell_center(cell_number, cell_center_vec); 
     // distance from cell center to face center
     for (int i = 0; i < 3; i++)
     {
-        cell_to_face[i] = face_center[i]-cell_center[i];
+        cell_face.push_back( face_center_vec[i]-cell_center_vec[i]);
     }
-    sc_prod(cell_to_face, cell_to_face, dl);
+    sc_prod(cell_face, cell_face, dl);
     dl = sqrt(dl);
-    sc_prod(cell_to_face, fg[face_number].dS, cosinus);
-    cosunus = abs(cosinus/dl/dS);
-    double cont1 = cosinus*dl/dS;
-    //calculate the sectorial area from cell center to edge center
+    sc_prod(cell_face, fg[face_number].dS, cosinus);
+    cosinus = fabs(cosinus/dl/dS);
+    double cont1 = cosinus*dl/(dS);
+    //calculate the sectorial area in 1-st cell
+    edge_cell.clear();
+    edge_face.clear();
     for (int i = 0; i < 3; i++)
     {
-        edge_cell[i] = cell_center[i] - edge_center[i];
-        edge_face[i] = face_center[i] - edge_center[i];
+        edge_cell.push_back( cell_center_vec[i] - edge_center_vec[i]);
+        edge_face.push_back( face_center_vec[i] - edge_center_vec[i]);
     }
     vec_prod05(edge_cell,edge_face, sec_vec);
     double sec_S1;
@@ -505,45 +549,58 @@ void Mesh::face_contribution(int edge_number,
     sec_S1 = sqrt(sec_S1);
 
 
-    //distance to second cell center
+    //distance to 2-nd cell center
     cell_number = fg[face_number].cells[1];
-    cell_to_face.clear();
- 
-    for(int i = 0; i<3; i++)
-    {
-        double q = 0.0;
-        for(int j=0; j<cg[cell_number].nodes.size();j++)
-        {
-            q1 += g[cg[cell_number].nodes[j]].glob_loc[i];
-        }
-        cell_center.push_back(q/cg[cell_number].nodes.size());
-    }
+    cell_center(cell_number, cell_center_vec); 
     // distance from cell center to face center
+    cell_face.clear();
     for (int i = 0; i < 3; i++)
     {
-        cell_to_face.push_back(face_center[i]-cell_center[i]);
+        cell_face.push_back( face_center_vec[i]-cell_center_vec[i]);
     }
-    sc_prod(cell_to_face, cell_to_face, dl);
+    sc_prod(cell_face, cell_face, dl);
     dl = sqrt(dl);
-    sc_prod(cell_to_face, fg[face_number].dS, cosinus);
-    cosunus = abs(cosinus/dl/dS);
-    double cont2 = cosinus*dl/dS;
-    face_contrib = cont1+cont2; // don't forget mu!
-    
-    //calculate the sectorial area from cell center to edge center
+    sc_prod(cell_face, fg[face_number].dS, cosinus);
+    cosinus = fabs(cosinus/dl/dS);
+    double cont2 = cosinus*dl/(dS);
+    //calculate the sectorial area in 1-st cell
     for (int i = 0; i < 3; i++)
     {
-        edge_cell[i] = cell_center[i] - edge_center[i];
-        edge_face[i] = face_center[i] - edge_center[i];
+        edge_cell[i] = cell_center_vec[i] - edge_center_vec[i];
+        edge_face[i] = face_center_vec[i] - edge_center_vec[i];
     }
     vec_prod05(edge_cell,edge_face, sec_vec);
     double sec_S2;
     sc_prod(sec_vec, sec_vec, sec_S2);
     sec_S2 = sqrt(sec_S2);
+    face_contrib = cont1+cont2; 
+   // std::cout<<cg[cell_number].mu<<std::endl;
     sec_S = sec_S1+sec_S2;
+//    std::cout<<"FC done"<<std::endl;
 }
 
-void Mesh::edge_contribution(int edge_num, int face_num, double & dl)
+void Mesh::edge_contribution(int edge_number, int face_number, double & dl)
 {
+    std::vector<double> edge_center_vec;
+    std::vector<double> face_center_vec;
+    std::vector<double> edir_vec;
+    std::vector<double> face_edge;
+    std::vector<double> orient;
 
+    edge_center(edge_number, edge_center_vec);
+    face_center(face_number, face_center_vec);
+    edge_direction(edge_number, edir_vec);
+    sc_prod(edir_vec, edir_vec, dl);
+    dl = sqrt(dl);
+    vec_norm(edir_vec);
+    for (int i = 0; i < 3; i++)
+    {
+        face_edge.push_back(edge_center_vec[i] - face_center_vec[i]);
+    }
+    vec_prod(face_edge, fg[face_number].dS, orient);
+    vec_norm(orient);
+    double signum;
+    sc_prod(edir_vec, orient, signum);
+    dl = dl*signum;
+//    std::cout<<"EC done"<<std::endl;
 }

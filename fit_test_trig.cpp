@@ -5,7 +5,7 @@ int main()
 {
     Mesh m1;
 
-    if (m1.readmesh("magnet.msh"))
+    if (m1.readmesh("wire.msh"))
 	    {
 		    std::cout << "Mesh read: OK!" << std::endl;
 	}
@@ -73,17 +73,35 @@ int main()
             m1.fg[face_number].cells.push_back(i);
         }   
     }
+    int tp0 = 0, tp1=0, tp2 = 0;
     for(int i = 0; i <m1.fg.size(); i++)// calculate face norm(orientation) & detect boundary type
     {
         m1.calc_face_norm(i);
-        if(m1.fg[i].cells.size() == 2)
+        double fdS;
+        sc_prod(m1.fg[i].dS, m1.fg[i].dS, fdS);
+        if(fdS< 1e-20)
+            std::cout<<"very small face!"<<std::endl;
+        
+        if(m1.fg[i].cells.size() == 2){
             if(m1.cg[m1.fg[i].cells[0]].tag == m1.cg[m1.fg[i].cells[1]].tag)
+            {
                 m1.fg[i].boundary_type = 0;
+                tp0++;
+            }   
             else
+            {
                 m1.fg[i].boundary_type = 2;
+                tp2++;
+            }
+        }
         else
+        {
             m1.fg[i].boundary_type = 1;
-    }    
+            tp1++;
+        }   
+    }
+    std::cout<<"outer "<<tp1<<", inner "<<tp2<<", other "<<tp0<<std::endl;
+
     // apply loads to edges 
     for(int i = 0; i<m1.cg.size(); i++)
     {
@@ -105,43 +123,30 @@ int main()
     }
 // create a range of non-boundary edges
     std::vector<int> non_boundary_edges;
+    std::vector<int> boundary_edges;
     for(int i = 0; i<m1.eg.size();i++)
     {
         for(int j=0; j<m1.eg[i].faces.size(); j++)
         {
-            if(m1.fg[m1.eg[i].faces[j]].boundary_type != 1)
+            if(m1.fg[m1.eg[i].faces[j]].boundary_type == 1)
             {
-                non_boundary_edges.push_back(i);
-                m1.eg[i].range_position = non_boundary_edges.size()-1;
+                boundary_edges.push_back(i);
+                m1.eg[i].range_position = -2;
                 break;
             }
         }
     }
-
-    // just for test  will be removed at the end
-    for(int i = 0; i <m1.fg.size(); i++)
+    for(int i = 0; i<m1.eg.size();i++)
     {
-        for(int j=0; j<m1.fg[i].edges.size(); j++)
+        if(m1.eg[i].range_position == -1)
         {
-            int node_num1 = m1.eg[m1.fg[i].edges[j]].bnode;
-            int node_num2 = m1.eg[m1.fg[i].edges[j]].enode;
-            m1.g[node_num1].phi += m1.fg[i].boundary_type;
-            m1.g[node_num2].phi += m1.fg[i].boundary_type;
+            non_boundary_edges.push_back(i);
+            m1.eg[i].range_position = non_boundary_edges.size()-1;
         }
     }
-    for (int i = 0; i < m1.g.size(); i++)
-    {
-        for (int j = 0; j < m1.g[i].edges.size(); j++)
-        {
-            std::vector<double> edir;
-            double value = m1.eg[m1.g[i].edges[j]].Load;
-            m1.global_edge_dir(m1.g[i].edges[j], edir);
-            m1.g[i].A[0] += edir[0]*value;
-            m1.g[i].A[1] += edir[1]*value; 
-            m1.g[i].A[2] += edir[2]*value; 
-        }
-        
-    }
+   std::cout<<"Total edges "<<m1.eg.size()<<std::endl;
+   std::cout<<"Non boundary edges "<<non_boundary_edges.size()<<std::endl;
+   std::cout<<"Boundary edges "<<boundary_edges.size()<<std::endl;
 
    // assemble matrix
     std::cout<<"start matrix assembly..."<<std::endl;
@@ -149,75 +154,71 @@ int main()
     typedef Eigen::SparseMatrix<double> SpMat; // declares a column-major sparse matrix type of double
     typedef Eigen::Triplet<double> T;
     std::vector<T> coefficients;
-
     std::vector<int> tmp_edge_array;
+
 // run over non_boundary edges only
     for(int i_nd=0; i_nd < non_boundary_edges.size();i_nd++)
     {
         int i = non_boundary_edges[i_nd]; //global index of edge
-        double S = 0;
+        double S = 0.0; //total sectorial area for the edge
         std::vector<double> face_contrib;
         for(int j = 0; j < m1.eg[i].faces.size(); j++) // all faces of the edge
         {
             int face_number = m1.eg[i].faces[j];
             double dS; // part of the sectorial area
             double dl; // contribution to multiply all edges of the face
-            face_contribution(i, face_number, dl, dS);
+            m1.face_contribution(i, face_number, dl, dS);
             S += dS;
-            face_contrib.push(dl);
+            face_contrib.push_back(dl);
         }
+        for(int j = 0; j < face_contrib.size(); j++) // all faces of the edge
+        {
+            face_contrib[j] = face_contrib[j]/S; //removed S
+        }
+
+        double diag_element;
         for(int j = 0; j < m1.eg[i].faces.size(); j++) // all faces of the edge
         {
             int face_number = m1.eg[i].faces[j];
-            for(int k = 0; k < m.fg[face_number].edges.size(); k++)
-            {
-                int edge_number = m.fg[face_number].edges[k];
-
-            }
-            // determine edge orientation in the current face
-            while (tmp_edge_array.size()>0)
-            {
-                for(int k = 0; k < tmp_edge_array.size(); k++)
+            for(int k = 0; k < m1.fg[face_number].edges.size(); k++) // all edges of the face
                 {
-                    if(m.eg[tmp_edge_array[k]].bnode == next_node || m.eg[tmp_edge_array[k]].enode == next_node)
+                    int edge_number = m1.fg[face_number].edges[k];
+                    double dl;
+                    m1.edge_contribution(edge_number, face_number, dl);
+                    double coeff_value = dl * face_contrib[j]; 
+
+                    if(edge_number != i)
                     {
-                        if(m.eg[tmp_edge_array[k]].bnode == next_node)
-                        {
-                            m.eg[tmp_edge_array[k]].sign = 1;
-                            next_node = m.eg[tmp_edge_array[k]].enode;
-                        }
-                        else
-                        {
-                            m.eg[tmp_edge_array[k]].sign = -1;
-                            next_node = m.eg[tmp_edge_array[k]].bnode;
-                        }
-                        tmp_edge_array.erase(tmp_edge_array.begin() + k); 
-                        break;
+                        if(m1.eg[edge_number].range_position != -2)
+                            coefficients.push_back(T(i_nd, m1.eg[edge_number].range_position, coeff_value));
                     }
-                }
-            }
-
-            for(int k = 0; k < m.fg[m.eg[i].faces[j]].edges.size(); k++)
-                {
-                    int edge_index = m.fg[m.eg[i].faces[j]].edges[k];
-                    if(edge_index != i)
-                    {     
-                        double coeff_value = m.eg[edge_index].sign/m.fg[m.eg[i].faces[j]].mu;
-                        coefficients.push_back(T(i_nd,m.eg[edge_index].set_id, coeff_value));
-                    }
+                    else
+                        diag_element += coeff_value; 
                 }
         }
+        coefficients.push_back(T(i_nd, i_nd, diag_element));
+    //    std::cout<<"edge# "<<i_nd<<" done" <<std::endl;
+
     }
+
     SpMat Anb(non_boundary_edges.size(),non_boundary_edges.size());
     Anb.setFromTriplets(coefficients.begin(), coefficients.end());
+/*    for (int k=0; k<Anb.outerSize(); ++k)
+        for (Eigen::SparseMatrix<double>::InnerIterator it(Anb,k); it; ++it)
+        {
+            std::cout<<it.value()<<" "<<it.row()<<" "<<it.col()<<std::endl;
+    }
+*/
+    //set load vector
+    Eigen::VectorXd b(non_boundary_edges.size()); 
+    std::cout << "start loads..." << std::endl;
+    for (int i = 0; i < non_boundary_edges.size(); i++)
+    {
+        b(i) = m1.eg[non_boundary_edges[i]].Load;
+    }
+    std::cout<<std::endl;
 
-
-
-    //m1.print_faces();
-   // m1.writemesh("magnet_out.vtk");
-
-
- /* solving
+ // solving
     std::cout << "start BiCGSTAB ..." << std::endl;
  
     Eigen::BiCGSTAB<SpMat> solver;
@@ -228,38 +229,25 @@ int main()
     std::cout << "estimated error: " << solver.error()      << std::endl;
     for (int i = 0; i < non_boundary_edges.size(); i++)
     {
-        m.eg[non_boundary_edges[i]].Val = x(i);
+        m1.eg[non_boundary_edges[i]].Val = x(i);
     }
     
-    //write vector potential in file
-    std::ofstream MyFile("Afile.txt");
-
-    for (int i = 0; i < m.g.size(); i++)
-    {
-        double Ax = 0.0;
-        double Ay = 0.0;
-        double Az = 0.0;
-
-        for(int j = 0; j< m.g[i].edges.size();j++)
+    //interpolate vector potential to nodes
+    for (int i = 0; i < m1.g.size(); i++)
         {
-            int edge_index = m.g[i].edges[j];
-            double x0 = m.g[m.eg[edge_index].bnode].glob_loc[0];
-            double y0 = m.g[m.eg[edge_index].bnode].glob_loc[1];
-            double z0 = m.g[m.eg[edge_index].bnode].glob_loc[2];
-            double x1 = m.g[m.eg[edge_index].enode].glob_loc[0];
-            double y1 = m.g[m.eg[edge_index].enode].glob_loc[1];
-            double z1 = m.g[m.eg[edge_index].enode].glob_loc[2];
-            double L = std::sqrt((x1-x0)*(x1-x0)+(y1-y0)*(y1-y0)+(z1-z0)*(z1-z0)); 
-            Ax += std::abs(m.eg[edge_index].Val)*(x1-x0)/L;
-            Ay += std::abs(m.eg[edge_index].Val)*(y1-y0)/L;
-            Az += std::abs(m.eg[edge_index].Val)*(z1-z0)/L;
+            for (int j = 0; j < m1.g[i].edges.size(); j++)
+            {
+                std::vector<double> edir;
+                double value = m1.eg[m1.g[i].edges[j]].Val;
+                m1.edge_direction(m1.g[i].edges[j], edir);
+                m1.g[i].A[0] += edir[0]*value;
+                m1.g[i].A[1] += edir[1]*value; 
+                m1.g[i].A[2] += edir[2]*value; 
+         } 
         }
-        MyFile<<m.g[i].glob_loc[0]<<","<<m.g[i].glob_loc[1]<<","<<m.g[i].glob_loc[2]
-        <<","<< Ax <<","<< Ay <<","<< Az <<std::endl; 
-    }
-    // Close the file
-    MyFile.close();
+    std::cout << "Write results ..." << std::endl;
+
+    m1.writemesh("wire_out.vtk");
     std::cout<<"Done!"<<std::endl;
-*/
     return 0;
 }
