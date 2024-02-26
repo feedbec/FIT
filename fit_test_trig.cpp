@@ -128,9 +128,6 @@ int main()
         
     }
 
-
-
-
     //m1.print_faces();
     m1.writemesh("magnet_out.vtk");
 
