@@ -4,16 +4,17 @@
 int main()
 {
     Mesh m1;
-    std::vector<int> combo_list;
 
     if (m1.readmesh("magnet.msh"))
 	    {
 		    std::cout << "Mesh read: OK!" << std::endl;
 	}
 	else
+    {
 		std::cout << "Cannot open mesh file!" << std::endl;
-
-
+        return 1;
+    }
+    std::vector<int> combo_list;
     make_combination_list(4,3,combo_list);
 
 //try to make edges and faces 
@@ -117,8 +118,7 @@ int main()
         }
     }
 
-
-    // just for test 
+    // just for test  will be removed at the end
     for(int i = 0; i <m1.fg.size(); i++)
     {
         for(int j=0; j<m1.fg[i].edges.size(); j++)
@@ -143,11 +143,78 @@ int main()
         
     }
 
+   // assemble matrix
+    std::cout<<"start matrix assembly..."<<std::endl;
+
+    typedef Eigen::SparseMatrix<double> SpMat; // declares a column-major sparse matrix type of double
+    typedef Eigen::Triplet<double> T;
+    std::vector<T> coefficients;
+
+    std::vector<int> tmp_edge_array;
+// run over non_boundary edges only
+    for(int i_nd=0; i_nd < non_boundary_edges.size();i_nd++)
+    {
+        int i = non_boundary_edges[i_nd]; //global index of edge
+        double S = 0;
+        std::vector<double> face_contrib;
+        for(int j = 0; j < m1.eg[i].faces.size(); j++) // all faces of the edge
+        {
+            int face_number = m1.eg[i].faces[j];
+            double dS; // part of the sectorial area
+            double dl; // contribution to multiply all edges of the face
+            face_contribution(i, face_number, dl, dS);
+            S += dS;
+            face_contrib.push(dl);
+        }
+        for(int j = 0; j < m1.eg[i].faces.size(); j++) // all faces of the edge
+        {
+            int face_number = m1.eg[i].faces[j];
+            for(int k = 0; k < m.fg[face_number].edges.size(); k++)
+            {
+                int edge_number = m.fg[face_number].edges[k];
+
+            }
+            // determine edge orientation in the current face
+            while (tmp_edge_array.size()>0)
+            {
+                for(int k = 0; k < tmp_edge_array.size(); k++)
+                {
+                    if(m.eg[tmp_edge_array[k]].bnode == next_node || m.eg[tmp_edge_array[k]].enode == next_node)
+                    {
+                        if(m.eg[tmp_edge_array[k]].bnode == next_node)
+                        {
+                            m.eg[tmp_edge_array[k]].sign = 1;
+                            next_node = m.eg[tmp_edge_array[k]].enode;
+                        }
+                        else
+                        {
+                            m.eg[tmp_edge_array[k]].sign = -1;
+                            next_node = m.eg[tmp_edge_array[k]].bnode;
+                        }
+                        tmp_edge_array.erase(tmp_edge_array.begin() + k); 
+                        break;
+                    }
+                }
+            }
+
+            for(int k = 0; k < m.fg[m.eg[i].faces[j]].edges.size(); k++)
+                {
+                    int edge_index = m.fg[m.eg[i].faces[j]].edges[k];
+                    if(edge_index != i)
+                    {     
+                        double coeff_value = m.eg[edge_index].sign/m.fg[m.eg[i].faces[j]].mu;
+                        coefficients.push_back(T(i_nd,m.eg[edge_index].set_id, coeff_value));
+                    }
+                }
+        }
+    }
+    SpMat Anb(non_boundary_edges.size(),non_boundary_edges.size());
+    Anb.setFromTriplets(coefficients.begin(), coefficients.end());
 
 
 
     //m1.print_faces();
-    m1.writemesh("magnet_out.vtk");
+   // m1.writemesh("magnet_out.vtk");
 
 
  /* solving
