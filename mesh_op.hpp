@@ -11,8 +11,10 @@ struct Node
     std::vector<int> edges;
     double phi;
     double A[3];
+    double current[3];
     Node(double x, double y, double z)
-    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; phi = 0.0; A[0]=A[1]=A[2]=0.0;};
+    {glob_loc[0]=x;glob_loc[1]=y;glob_loc[2]=z; phi = 0.0; A[0]=A[1]=A[2]=0.0;
+    current[0] = current[1] = current[2] = 0.0;};
 };
 typedef std::vector<Node> grid;
 
@@ -48,7 +50,7 @@ struct Cell
     std::vector<int> nodes;
     std::vector<int> faces;
     Cell(){};
-    Cell(std::vector<int> & nodes0, int tag0):nodes(nodes0), tag(tag0){};
+    Cell(std::vector<int> & nodes0, int tag0):nodes(nodes0), tag(tag0){mu = 1.0;};
 };
 typedef std::vector<Cell> cell_grid;
 
@@ -280,6 +282,11 @@ bool Mesh::writemesh(std::string filename)
 			newfile << g[i].phi << std::endl;
 		// print vector data
         newfile << std::endl;
+		newfile << "VECTORS current float" << std::endl;
+		for (size_t i = 0; i < g.size(); i++)
+			newfile << g[i].current[0]<<" "<< g[i].current[1]<<" " << g[i].current[2] << std::endl;	
+
+        newfile << std::endl;
 		newfile << "VECTORS Vector_potential float" << std::endl;
 		for (size_t i = 0; i < g.size(); i++)
 			newfile << g[i].A[0]<<" "<< g[i].A[1]<<" " << g[i].A[2] << std::endl;	
@@ -377,13 +384,8 @@ std::vector<std::string> split(const std::string &s, char delim) {
 void Mesh::calc_face_norm(int i)
 {
     std::vector<double> v1, v2;
-    for(int j = 0; j<3; j++)
-        {
-            v1.push_back(g[eg[fg[i].edges[0]].enode].glob_loc[j]
-            - g[eg[fg[i].edges[0]].bnode].glob_loc[j]);
-            v2.push_back(g[eg[fg[i].edges[1]].enode].glob_loc[j]
-            - g[eg[fg[i].edges[1]].bnode].glob_loc[j]);
-        }
+    edge_direction(fg[i].edges[0],v1);
+    edge_direction(fg[i].edges[1],v2);
     vec_prod05(v1,v2,fg[i].dS);    
 }
 
@@ -510,12 +512,14 @@ void Mesh::face_contribution(int edge_number,
     edge_direction(edge_number, edir_vec);
     vec_norm(edir_vec);
 
+    //from edge center to face center
     for (int i = 0; i < 3; i++)
     {
         edge_face.push_back(face_center_vec[i] - edge_center_vec[i]);
     }
     vec_norm(edge_face);
     vec_prod(edge_face,edir_vec,fdir_vec);
+    vec_norm(fdir_vec);
     double dS; //sign and area of the face corresponding to the given edge rotation direction
     sc_prod(fdir_vec, fg[face_number].dS, dS);
     
@@ -534,7 +538,8 @@ void Mesh::face_contribution(int edge_number,
     dl = sqrt(dl);
     sc_prod(cell_face, fg[face_number].dS, cosinus);
     cosinus = fabs(cosinus/dl/dS);
-    double cont1 = cosinus*dl/(dS);
+    //cosinus = 1.0; // temporary value, correct for orthogonal 
+    double cont1 = cosinus*dl/(dS*cg[cell_number].mu);
     //calculate the sectorial area in 1-st cell
     edge_cell.clear();
     edge_face.clear();
@@ -562,7 +567,8 @@ void Mesh::face_contribution(int edge_number,
     dl = sqrt(dl);
     sc_prod(cell_face, fg[face_number].dS, cosinus);
     cosinus = fabs(cosinus/dl/dS);
-    double cont2 = cosinus*dl/(dS);
+    //cosinus = 1.0;
+    double cont2 = cosinus*dl/(dS*cg[cell_number].mu);
     //calculate the sectorial area in 1-st cell
     for (int i = 0; i < 3; i++)
     {

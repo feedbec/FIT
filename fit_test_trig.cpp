@@ -110,13 +110,10 @@ int main()
             for(int j = 0; j<m1.cg[i].faces.size(); j++)
                 for(int k = 0; k<m1.fg[m1.cg[i].faces[j]].edges.size(); k++)
                 {
-                    int node1 = m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].bnode;
-                    int node2 = m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].enode;
                     std::vector<double> edge_dir;
-                    std::vector<double> load_dir={0.0,0.0,1.0}; //this is the value and direction of current density
-                    for(int q = 0; q<3; q++)
-                        edge_dir.push_back(m1.g[node2].glob_loc[q]-m1.g[node1].glob_loc[q]);
+                    m1.edge_direction(m1.fg[m1.cg[i].faces[j]].edges[k], edge_dir);
                     vec_norm(edge_dir);
+                    std::vector<double> load_dir={0.0,0.0,1.0}; //this is the value and direction of current density
                     sc_prod(edge_dir, load_dir, m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].Load);
                 }
         }
@@ -173,10 +170,10 @@ int main()
         }
         for(int j = 0; j < face_contrib.size(); j++) // all faces of the edge
         {
-            face_contrib[j] = face_contrib[j]/S; //removed S
+            face_contrib[j] = face_contrib[j]; //removed S
         }
 
-        double diag_element;
+        double diag_element = 0.0;
         for(int j = 0; j < m1.eg[i].faces.size(); j++) // all faces of the edge
         {
             int face_number = m1.eg[i].faces[j];
@@ -203,18 +200,20 @@ int main()
 
     SpMat Anb(non_boundary_edges.size(),non_boundary_edges.size());
     Anb.setFromTriplets(coefficients.begin(), coefficients.end());
-/*    for (int k=0; k<Anb.outerSize(); ++k)
+ /*   for (int k=0; k<Anb.outerSize(); ++k)
         for (Eigen::SparseMatrix<double>::InnerIterator it(Anb,k); it; ++it)
         {
             std::cout<<it.value()<<" "<<it.row()<<" "<<it.col()<<std::endl;
     }
 */
+
     //set load vector
     Eigen::VectorXd b(non_boundary_edges.size()); 
     std::cout << "start loads..." << std::endl;
     for (int i = 0; i < non_boundary_edges.size(); i++)
     {
         b(i) = m1.eg[non_boundary_edges[i]].Load;
+        //std::cout<<b(i)<<" ";
     }
     std::cout<<std::endl;
 
@@ -223,6 +222,7 @@ int main()
  
     Eigen::BiCGSTAB<SpMat> solver;
     solver.compute(Anb);
+    solver.setMaxIterations(200);
 
     Eigen::VectorXd x = solver.solve(b);
     std::cout << "#iterations:     " << solver.iterations() << std::endl;
@@ -240,11 +240,28 @@ int main()
                 std::vector<double> edir;
                 double value = m1.eg[m1.g[i].edges[j]].Val;
                 m1.edge_direction(m1.g[i].edges[j], edir);
+                vec_norm(edir);
                 m1.g[i].A[0] += edir[0]*value;
                 m1.g[i].A[1] += edir[1]*value; 
                 m1.g[i].A[2] += edir[2]*value; 
          } 
         }
+    
+    //interpolate current to nodes
+    for (int i = 0; i < m1.g.size(); i++)
+        {
+            for (int j = 0; j < m1.g[i].edges.size(); j++)
+            {
+                std::vector<double> edir;
+                double value = m1.eg[m1.g[i].edges[j]].Load;
+                m1.edge_direction(m1.g[i].edges[j], edir);
+                vec_norm(edir);
+                m1.g[i].current[0] += edir[0]*value;
+                m1.g[i].current[1] += edir[1]*value; 
+                m1.g[i].current[2] += edir[2]*value; 
+         } 
+        }
+
     std::cout << "Write results ..." << std::endl;
 
     m1.writemesh("wire_out.vtk");
