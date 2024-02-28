@@ -102,7 +102,7 @@ int main()
     }
     std::cout<<"outer "<<tp1<<", inner "<<tp2<<", other "<<tp0<<std::endl;
 
-    // apply loads to edges 
+    // apply loads to edges from geometry
     for(int i = 0; i<m1.cg.size(); i++)
     {
         if(m1.cg[i].tag == 2)
@@ -111,13 +111,17 @@ int main()
                 for(int k = 0; k<m1.fg[m1.cg[i].faces[j]].edges.size(); k++)
                 {
                     std::vector<double> edge_dir;
+                    double LD;
                     m1.edge_direction(m1.fg[m1.cg[i].faces[j]].edges[k], edge_dir);
                     vec_norm(edge_dir);
                     std::vector<double> load_dir={0.0,0.0,1.0}; //this is the value and direction of current density
-                    sc_prod(edge_dir, load_dir, m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].Load);
+                    sc_prod(edge_dir, load_dir, LD);
+                    m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].Load = 0.0;
                 }
         }
     }
+    
+
 // create a range of non-boundary edges
     std::vector<int> non_boundary_edges;
     std::vector<int> boundary_edges;
@@ -141,6 +145,31 @@ int main()
             m1.eg[i].range_position = non_boundary_edges.size()-1;
         }
     }
+
+    // apply loads to edges analytically
+    for (int i = 0; i < non_boundary_edges.size(); i++)
+    {
+        double x0 = m1.g[m1.eg[non_boundary_edges[i]].bnode].glob_loc[0];
+        double y0 = m1.g[m1.eg[non_boundary_edges[i]].bnode].glob_loc[1];
+        double z0 = m1.g[m1.eg[non_boundary_edges[i]].bnode].glob_loc[2];
+        double R = (x0-0.5)*(x0-0.5) + (y0-0.5)*(y0-0.5);
+        if( R >= 0.2*0.2 && R <=0.3*0.3 && z0 >= 0.48 && z0 <= 0.52)
+        {
+            std::vector<double> edge_dir;
+            double LD;
+            m1.edge_direction(non_boundary_edges[i], edge_dir);
+            vec_norm(edge_dir);
+            std::vector<double> load_dir1={0.0,0.0,1.0}; //this is the value and direction of current density
+            std::vector<double> load_dir2={x0-0.5,y0-0.5,z0}; //this is the value and direction of current density
+            std::vector<double> load_dir;
+            vec_prod(load_dir1,load_dir2, load_dir);
+            sc_prod(edge_dir, load_dir, LD);
+            m1.eg[non_boundary_edges[i]].Load = LD;
+        }
+    }
+
+
+
    std::cout<<"Total edges "<<m1.eg.size()<<std::endl;
    std::cout<<"Non boundary edges "<<non_boundary_edges.size()<<std::endl;
    std::cout<<"Boundary edges "<<boundary_edges.size()<<std::endl;
@@ -170,7 +199,7 @@ int main()
         }
         for(int j = 0; j < face_contrib.size(); j++) // all faces of the edge
         {
-            face_contrib[j] = face_contrib[j]; //removed S
+            face_contrib[j] = face_contrib[j]/S; //removed S
         }
 
         double diag_element = 0.0;
