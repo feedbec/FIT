@@ -147,27 +147,34 @@ int main()
     }
 
     // apply loads to edges analytically
-    for (int i = 0; i < non_boundary_edges.size(); i++)
+    for (int i = 0; i < m1.cg.size(); i++)
     {
-        double x0 = m1.g[m1.eg[non_boundary_edges[i]].bnode].glob_loc[0];
-        double y0 = m1.g[m1.eg[non_boundary_edges[i]].bnode].glob_loc[1];
-        double z0 = m1.g[m1.eg[non_boundary_edges[i]].bnode].glob_loc[2];
+        std::vector<double> cell_center_vec;
+        m1.cell_center(i, cell_center_vec);
+
+        double x0 = cell_center_vec[0];
+        double y0 = cell_center_vec[1];
+        double z0 = cell_center_vec[2];
         double R = (x0-0.5)*(x0-0.5) + (y0-0.5)*(y0-0.5);
-        if( R >= 0.2*0.2 && R <=0.3*0.3 && z0 >= 0.48 && z0 <= 0.52)
+        if( R <= 0.1*0.1 )
         {
-            std::vector<double> edge_dir;
-            double LD;
-            m1.edge_direction(non_boundary_edges[i], edge_dir);
-            vec_norm(edge_dir);
-            std::vector<double> load_dir1={0.0,0.0,1.0}; //this is the value and direction of current density
-            std::vector<double> load_dir2={x0-0.5,y0-0.5,z0}; //this is the value and direction of current density
-            std::vector<double> load_dir;
-            vec_prod(load_dir1,load_dir2, load_dir);
-            sc_prod(edge_dir, load_dir, LD);
-            m1.eg[non_boundary_edges[i]].Load = LD;
+            for(int j=0; j<m1.cg[i].faces.size(); j++)
+            {
+                int face_number = m1.cg[i].faces[j];
+                for(int k = 0; k <m1.fg[face_number].edges.size(); k++)
+                {
+                    int edge_number = m1.fg[face_number].edges[k];
+                    std::vector<double> edge_dir;
+                    double LD;
+                    m1.edge_direction(edge_number, edge_dir);
+                    vec_norm(edge_dir);
+                    std::vector<double> load_dir={0.0, 0.0, 1.0}; //this is the value and direction of current density
+                    sc_prod(edge_dir, load_dir, LD);
+                    m1.eg[edge_number].Load = LD;
+                }
+            }
         }
     }
-
 
 
    std::cout<<"Total edges "<<m1.eg.size()<<std::endl;
@@ -185,46 +192,15 @@ int main()
 // run over non_boundary edges only
     for(int i_nd=0; i_nd < non_boundary_edges.size();i_nd++)
     {
+        all_edges pattern_edge_list;
+        pattern_edge_list.clear();
         int i = non_boundary_edges[i_nd]; //global index of edge
-        double S = 0.0; //total sectorial area for the edge
-        std::vector<double> face_contrib;
-        for(int j = 0; j < m1.eg[i].faces.size(); j++) // all faces of the edge
+        m1.rotrot(i, pattern_edge_list);
+        for (int j = 0; j < pattern_edge_list.edge_number.size(); j++)
         {
-            int face_number = m1.eg[i].faces[j];
-            double dS; // part of the sectorial area
-            double dl; // contribution to multiply all edges of the face
-            m1.face_contribution(i, face_number, dl, dS);
-            S += dS;
-            face_contrib.push_back(dl);
+            coefficients.push_back(T(i_nd, m1.eg[pattern_edge_list.edge_number[j]].range_position,
+            pattern_edge_list.edge_value[j]));
         }
-        for(int j = 0; j < face_contrib.size(); j++) // all faces of the edge
-        {
-            face_contrib[j] = face_contrib[j]/S; //removed S
-        }
-
-        double diag_element = 0.0;
-        for(int j = 0; j < m1.eg[i].faces.size(); j++) // all faces of the edge
-        {
-            int face_number = m1.eg[i].faces[j];
-            for(int k = 0; k < m1.fg[face_number].edges.size(); k++) // all edges of the face
-                {
-                    int edge_number = m1.fg[face_number].edges[k];
-                    double dl;
-                    m1.edge_contribution(edge_number, face_number, dl);
-                    double coeff_value = dl * face_contrib[j]; 
-
-                    if(edge_number != i)
-                    {
-                        if(m1.eg[edge_number].range_position != -2)
-                            coefficients.push_back(T(i_nd, m1.eg[edge_number].range_position, coeff_value));
-                    }
-                    else
-                        diag_element += coeff_value; 
-                }
-        }
-        coefficients.push_back(T(i_nd, i_nd, diag_element));
-    //    std::cout<<"edge# "<<i_nd<<" done" <<std::endl;
-
     }
 
     SpMat Anb(non_boundary_edges.size(),non_boundary_edges.size());
@@ -247,15 +223,24 @@ int main()
     std::cout<<std::endl;
 
  // solving
-    std::cout << "start BiCGSTAB ..." << std::endl;
+ //   std::cout << "start BiCGSTAB ..." << std::endl;
+    std::cout << "start SparseLU ..." << std::endl;
  
-    Eigen::BiCGSTAB<SpMat> solver;
-    solver.compute(Anb);
-    solver.setMaxIterations(200);
+    Eigen::SparseLU<SpMat, Eigen::COLAMDOrdering<int> >   solver;
+    solver.analyzePattern(Anb); 
+    // Compute the numerical factorization 
+    solver.factorize(Anb); 
+    //Use the factors to solve the linear system 
+    //x = solver.solve(b);  
+ 
+ 
+    //Eigen::BiCGSTAB<SpMat> solver;
+    //solver.compute(Anb);
+    //solver.setMaxIterations(100);
 
     Eigen::VectorXd x = solver.solve(b);
-    std::cout << "#iterations:     " << solver.iterations() << std::endl;
-    std::cout << "estimated error: " << solver.error()      << std::endl;
+    //std::cout << "#iterations:     " << solver.iterations() << std::endl;
+    //std::cout << "estimated error: " << solver.error()      << std::endl;
     for (int i = 0; i < non_boundary_edges.size(); i++)
     {
         m1.eg[non_boundary_edges[i]].Val = x(i);

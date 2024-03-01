@@ -5,6 +5,15 @@
 #include <sstream>
 #include <limits>
 
+struct all_edges
+{
+    std::vector<int> edge_number;
+    std::vector<double> edge_value;
+    void add(int, double);
+    void clear(){edge_number.clear(); edge_value.clear();}
+};
+
+
 struct Node
 {
     double glob_loc[3];
@@ -77,6 +86,10 @@ struct Mesh
     void face_center(int face_number, std::vector<double> & face_center_vec);
     void edge_center(int edge_number, std::vector<double> & edge_center_vec) ;
     void cell_center(int cell_number, std::vector<double> & cell_center_vec) ;
+    void rotrot(int edge_number, all_edges & elist);
+    void graddiv(int edge_number, all_edges & elist);
+    double dual_face_area(int edge_number);
+    double dual_cell_volume(int node_number);
 };
 
 std::vector<std::string> split(const std::string &s, char delim);
@@ -487,7 +500,6 @@ void Mesh::cell_center(int cell_number, std::vector<double> & cell_center_vec)
         }
         cell_center_vec.push_back((q/cg[cell_number].nodes.size()));
     }
-
 }
 
 void Mesh::face_contribution(int edge_number,
@@ -510,7 +522,6 @@ void Mesh::face_contribution(int edge_number,
     face_center(face_number, face_center_vec);
     edge_center(edge_number, edge_center_vec);
     edge_direction(edge_number, edir_vec);
-    vec_norm(edir_vec);
 
     //from edge center to face center
     for (int i = 0; i < 3; i++)
@@ -532,8 +543,9 @@ void Mesh::face_contribution(int edge_number,
     {
         cell_face.push_back( face_center_vec[i]-cell_center_vec[i]);
     }
-    sc_prod(cell_face, fg[face_number].dS, dl);
-    dl = fabs(dl/dS);
+    sc_prod(cell_face, cell_face, dl);
+    dl = sqrt(dl)/dS;
+    //dl = dS/fabs(dS);
     double cont1 = dl/(cg[cell_number].mu);
     //calculate the sectorial area in 1-st cell
     vec_prod05(cell_face, edge_face, sec_vec);
@@ -550,17 +562,19 @@ void Mesh::face_contribution(int edge_number,
     {
         cell_face.push_back( face_center_vec[i]-cell_center_vec[i]);
     }
-    sc_prod(cell_face, fg[face_number].dS, dl);
-    dl = fabs(dl/dS);
+    sc_prod(cell_face,cell_face, dl);
+    dl = sqrt(dl)/dS;
+    //dl = dS/fabs(dS);
     double cont2 = dl/(cg[cell_number].mu);
     //calculate the sectorial area in 1-st cell
     vec_prod05(cell_face, edge_face, sec_vec);
     double sec_S2;
     sc_prod(sec_vec, sec_vec, sec_S2);
     sec_S2 = sqrt(sec_S2);
-    face_contrib = dS*(cont1+cont2)/fabs(dS); 
+    face_contrib = cont1+cont2; 
     sec_S = sec_S1 + sec_S2;
 }
+
 
 void Mesh::edge_contribution(int edge_number, int face_number, double & dl)
 {
@@ -575,16 +589,123 @@ void Mesh::edge_contribution(int edge_number, int face_number, double & dl)
     edge_direction(edge_number, edir_vec);
     sc_prod(edir_vec, edir_vec, dl);
     dl = sqrt(dl);
-    vec_norm(edir_vec);
     for (int i = 0; i < 3; i++)
     {
-        face_edge.push_back(edge_center_vec[i] - face_center_vec[i]);
+        face_edge.push_back(-edge_center_vec[i] + face_center_vec[i]);
     }
-    vec_norm(face_edge);
-    vec_prod(face_edge, edir_vec, orient);
+    vec_prod(edir_vec, face_edge, orient);
+    vec_norm(orient);
     double signum;
     sc_prod(fg[face_number].dS, orient, signum);
-    //signum = signum/fabs(signum);
-    dl = dl/signum;
+    signum = signum/fabs(signum);
+    dl = signum*dl; //
 //    std::cout<<"EC done"<<std::endl;
 }
+
+void Mesh::rotrot(int edge_number, all_edges & elist)
+{
+    int i = edge_number;
+    double S = 0.0; //total area around the edge
+    std::vector<double> face_contrib;
+    face_contrib.clear();
+    for(int j = 0; j < eg[i].faces.size(); j++) // all faces of the edge
+    {
+        int face_number = eg[i].faces[j];
+        double dS; // part of the sectorial area
+        double dl; // contribution to multiply all edges of the face
+        face_contribution(i, face_number, dl, dS);
+        S += dS;
+        face_contrib.push_back(dl);
+    }
+    for(int j = 0; j < face_contrib.size(); j++) // all faces of the edge
+    {
+        face_contrib[j] = face_contrib[j]/S;
+    }
+
+    for(int j = 0; j < eg[i].faces.size(); j++) // all faces of the edge
+    {
+        int face_number = eg[i].faces[j];
+        for(int k = 0; k < fg[face_number].edges.size(); k++) // all edges of the face
+        {
+            int edge_number = fg[face_number].edges[k];
+            double dl;
+            edge_contribution(edge_number, face_number, dl);
+            double coeff_value = dl * face_contrib[j];
+            if(eg[edge_number].range_position >=0) 
+                elist.add(edge_number, coeff_value);
+        }
+    }
+
+}
+
+double Mesh::dual_face_area(int edge_number)
+{
+    double S = 0.0; //total area around the edge
+    face_contrib.clear();
+    for(int j = 0; j < eg[edge_number].faces.size(); j++) // all faces of the edge
+    {
+        int face_number = eg[edge_number].faces[j];
+        double dS; // part of the sectorial area
+        double dl; // contribution to multiply all edges of the face
+        face_contribution(edge_number, face_number, dl, dS);
+        S += dS;
+    }
+    return S;
+}
+
+double Mesh::dual_cell_volume(int node_number)
+{
+
+}
+
+
+void all_edges::add(int num, double val)
+{
+    for(int i = 0; i <edge_number.size(); i++)
+    {
+        if(num == edge_number[i])
+        {
+            edge_value[i] += val;
+            return;
+        }
+    }
+    edge_number.push_back(num);
+    edge_value.push_back(val);
+}
+
+void Mesh::graddiv(int edge_number, all_edges & elist)
+{
+    int i = edge_number;
+    double S = 0.0; //total area around the edge
+    std::vector<double> face_contrib;
+    face_contrib.clear();
+    for(int j = 0; j < eg[i].faces.size(); j++) // all faces of the edge
+    {
+        int face_number = eg[i].faces[j];
+        double dS; // part of the sectorial area
+        double dl; // contribution to multiply all edges of the face
+        face_contribution(i, face_number, dl, dS);
+        S += dS;
+        face_contrib.push_back(dl);
+    }
+    for(int j = 0; j < face_contrib.size(); j++) // all faces of the edge
+    {
+        face_contrib[j] = face_contrib[j]/S;
+    }
+
+    for(int j = 0; j < eg[i].faces.size(); j++) // all faces of the edge
+    {
+        int face_number = eg[i].faces[j];
+        for(int k = 0; k < fg[face_number].edges.size(); k++) // all edges of the face
+        {
+            int edge_number = fg[face_number].edges[k];
+            double dl;
+            edge_contribution(edge_number, face_number, dl);
+            double coeff_value = dl * face_contrib[j];
+            if(eg[edge_number].range_position >=0) 
+                elist.add(edge_number, coeff_value);
+        }
+    }
+
+}
+
