@@ -1,6 +1,8 @@
 #include "Eigen/Sparse"
 #include "mesh_op.hpp"
 
+//#define DIRECT
+
 int main()
 {
     Mesh m1;
@@ -72,6 +74,8 @@ int main()
             m1.cg[i].faces.push_back(face_number);
             m1.fg[face_number].cells.push_back(i);
         }   
+        for(int j=0; j<m1.cg[i].nodes.size(); j++)
+            m1.g[m1.cg[i].nodes[j]].cells.push_back(i); // add cell number to node
     }
     int tp0 = 0, tp1=0, tp2 = 0;
     for(int i = 0; i <m1.fg.size(); i++)// calculate face norm(orientation) & detect boundary type
@@ -100,7 +104,7 @@ int main()
             tp1++;
         }   
     }
-    std::cout<<"outer "<<tp1<<", inner "<<tp2<<", other "<<tp0<<std::endl;
+    std::cout<<"outer f "<<tp1<<", inner f "<<tp2<<", other f "<<tp0<<std::endl;
 
     // apply loads to edges from geometry
     for(int i = 0; i<m1.cg.size(); i++)
@@ -187,7 +191,7 @@ int main()
     typedef Eigen::SparseMatrix<double> SpMat; // declares a column-major sparse matrix type of double
     typedef Eigen::Triplet<double> T;
     std::vector<T> coefficients;
-    std::vector<int> tmp_edge_array;
+//    std::vector<int> tmp_edge_array;
 
 // run over non_boundary edges only
     for(int i_nd=0; i_nd < non_boundary_edges.size();i_nd++)
@@ -196,6 +200,7 @@ int main()
         pattern_edge_list.clear();
         int i = non_boundary_edges[i_nd]; //global index of edge
         m1.rotrot(i, pattern_edge_list);
+        m1.graddiv(i, pattern_edge_list);
         for (int j = 0; j < pattern_edge_list.edge_number.size(); j++)
         {
             coefficients.push_back(T(i_nd, m1.eg[pattern_edge_list.edge_number[j]].range_position,
@@ -223,24 +228,26 @@ int main()
     std::cout<<std::endl;
 
  // solving
- //   std::cout << "start BiCGSTAB ..." << std::endl;
+
+
+#ifdef DIRECT
     std::cout << "start SparseLU ..." << std::endl;
- 
-    Eigen::SparseLU<SpMat, Eigen::COLAMDOrdering<int> >   solver;
+     Eigen::SparseLU<SpMat, Eigen::COLAMDOrdering<int> >   solver;
     solver.analyzePattern(Anb); 
     // Compute the numerical factorization 
     solver.factorize(Anb); 
     //Use the factors to solve the linear system 
-    //x = solver.solve(b);  
- 
- 
-    //Eigen::BiCGSTAB<SpMat> solver;
-    //solver.compute(Anb);
-    //solver.setMaxIterations(100);
-
+    Eigen::VectorXd x = solver.solve(b);  
+#else
+    std::cout << "start BiCGSTAB ..." << std::endl;
+    Eigen::BiCGSTAB<SpMat> solver;
+    solver.compute(Anb);
+    solver.setMaxIterations(100);
     Eigen::VectorXd x = solver.solve(b);
-    //std::cout << "#iterations:     " << solver.iterations() << std::endl;
-    //std::cout << "estimated error: " << solver.error()      << std::endl;
+    std::cout << "#iterations:     " << solver.iterations() << std::endl;
+    std::cout << "estimated error: " << solver.error()      << std::endl;
+#endif
+
     for (int i = 0; i < non_boundary_edges.size(); i++)
     {
         m1.eg[non_boundary_edges[i]].Val = x(i);
@@ -278,7 +285,7 @@ int main()
 
     std::cout << "Write results ..." << std::endl;
 
-    m1.writemesh("wire_out.vtk");
+    m1.writemesh("wire_out_iter.vtk");
     std::cout<<"Done!"<<std::endl;
     return 0;
 }

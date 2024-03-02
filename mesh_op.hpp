@@ -18,6 +18,7 @@ struct Node
 {
     double glob_loc[3];
     std::vector<int> edges;
+    std::vector<int> cells;
     double phi;
     double A[3];
     double current[3];
@@ -90,6 +91,7 @@ struct Mesh
     void graddiv(int edge_number, all_edges & elist);
     double dual_face_area(int edge_number);
     double dual_cell_volume(int node_number);
+    double cell_volume(int cell_number);
 };
 
 std::vector<std::string> split(const std::string &s, char delim);
@@ -641,7 +643,7 @@ void Mesh::rotrot(int edge_number, all_edges & elist)
 double Mesh::dual_face_area(int edge_number)
 {
     double S = 0.0; //total area around the edge
-    face_contrib.clear();
+    std::vector<double> face_contrib;
     for(int j = 0; j < eg[edge_number].faces.size(); j++) // all faces of the edge
     {
         int face_number = eg[edge_number].faces[j];
@@ -655,9 +657,43 @@ double Mesh::dual_face_area(int edge_number)
 
 double Mesh::dual_cell_volume(int node_number)
 {
-
+    double S = 0.0;
+    for(int i=0; i < g[node_number].cells.size(); i++)
+    {
+        int cell_number = g[node_number].cells[i];
+        S += cell_volume(cell_number);
+    }
+    return S/g[node_number].cells.size(); 
 }
 
+
+double Mesh::cell_volume(int cell_number)
+{
+    std::vector<double> a,b,c;
+    int first_face = cg[cell_number].faces[0];
+    int second_face = cg[cell_number].faces[1];
+    int first_edge = fg[first_face].edges[0]; 
+    int second_edge = fg[first_face].edges[1]; 
+
+    edge_direction(first_edge, a);
+    edge_direction(second_edge, b);
+    for(int i = 0; i<fg[second_face].edges.size();i++)
+    {
+        int third_edge = fg[second_face].edges[i];
+        if(third_edge == first_edge || third_edge == second_edge)
+            continue;
+        else
+        {
+            edge_direction(third_edge, c);
+            break;
+        }
+    }
+    std::vector<double> base_area;
+    vec_prod(a,b,base_area);
+    double Vol;
+    sc_prod(base_area,c,Vol);
+    return fabs(Vol)/6.0;
+}
 
 void all_edges::add(int num, double val)
 {
@@ -675,37 +711,44 @@ void all_edges::add(int num, double val)
 
 void Mesh::graddiv(int edge_number, all_edges & elist)
 {
-    int i = edge_number;
-    double S = 0.0; //total area around the edge
-    std::vector<double> face_contrib;
-    face_contrib.clear();
-    for(int j = 0; j < eg[i].faces.size(); j++) // all faces of the edge
-    {
-        int face_number = eg[i].faces[j];
-        double dS; // part of the sectorial area
-        double dl; // contribution to multiply all edges of the face
-        face_contribution(i, face_number, dl, dS);
-        S += dS;
-        face_contrib.push_back(dl);
-    }
-    for(int j = 0; j < face_contrib.size(); j++) // all faces of the edge
-    {
-        face_contrib[j] = face_contrib[j]/S;
-    }
+    int first_node = eg[edge_number].bnode;
+    double Vol1 = dual_cell_volume(first_node);
+    int second_node = eg[edge_number].enode;
+    double Vol2 = dual_cell_volume(second_node);
+    double dl;
+    std::vector<double> edir;
+    edge_direction(edge_number,edir);
+    sc_prod(edir, edir, dl);
+    dl = sqrt(dl);
 
-    for(int j = 0; j < eg[i].faces.size(); j++) // all faces of the edge
+    for(int i = 0; i< g[first_node].edges.size(); i++)
     {
-        int face_number = eg[i].faces[j];
-        for(int k = 0; k < fg[face_number].edges.size(); k++) // all edges of the face
+        int local_edge_number = g[first_node].edges[i];
+        if(eg[local_edge_number].range_position < 0)
+            continue;
+        double dS=dual_face_area(local_edge_number);
+        if(first_node==eg[local_edge_number].bnode)
         {
-            int edge_number = fg[face_number].edges[k];
-            double dl;
-            edge_contribution(edge_number, face_number, dl);
-            double coeff_value = dl * face_contrib[j];
-            if(eg[edge_number].range_position >=0) 
-                elist.add(edge_number, coeff_value);
+            elist.add(local_edge_number, dS/Vol1/dl);
+        }
+        else{
+            elist.add(local_edge_number, -dS/Vol1/dl);
         }
     }
 
+    for(int i = 0; i< g[second_node].edges.size(); i++)
+    {
+        int local_edge_number = g[second_node].edges[i];
+        if(eg[local_edge_number].range_position < 0)
+            continue;
+        double dS=dual_face_area(local_edge_number);
+        if(second_node == eg[local_edge_number].bnode)
+        {
+            elist.add(local_edge_number, -dS/Vol2/dl);
+        }
+        else{
+            elist.add(local_edge_number, dS/Vol2/dl);
+        }
+    }
 }
 
