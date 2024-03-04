@@ -106,22 +106,16 @@ int main()
     }
     std::cout<<"outer f "<<tp1<<", inner f "<<tp2<<", other f "<<tp0<<std::endl;
 
-    // apply loads to edges from geometry
+    // apply material properties to cells
+    double mu0 = 12.57e-7;
     for(int i = 0; i<m1.cg.size(); i++)
     {
         if(m1.cg[i].tag == 2)
         {
-            for(int j = 0; j<m1.cg[i].faces.size(); j++)
-                for(int k = 0; k<m1.fg[m1.cg[i].faces[j]].edges.size(); k++)
-                {
-                    std::vector<double> edge_dir;
-                    double LD;
-                    m1.edge_direction(m1.fg[m1.cg[i].faces[j]].edges[k], edge_dir);
-                    vec_norm(edge_dir);
-                    std::vector<double> load_dir={0.0,0.0,1.0}; //this is the value and direction of current density
-                    sc_prod(edge_dir, load_dir, LD);
-                    m1.eg[m1.fg[m1.cg[i].faces[j]].edges[k]].Load = 0.0;
-                }
+            m1.cg[i].mu = 1000.0*mu0;
+        }
+        else{
+            m1.cg[i].mu = 1.0*mu0;
         }
     }
     
@@ -151,32 +145,30 @@ int main()
     }
 
     // apply loads to edges analytically
-    for (int i = 0; i < m1.cg.size(); i++)
+    std::cout<<"start setting current"<<std::endl;
+    for (int i = 0; i < m1.eg.size(); i++)
     {
-        std::vector<double> cell_center_vec;
-        m1.cell_center(i, cell_center_vec);
+        std::vector<double> edge_center_vec;
+        m1.edge_center(i, edge_center_vec);
 
-        double x0 = cell_center_vec[0];
-        double y0 = cell_center_vec[1];
-        double z0 = cell_center_vec[2];
-        double R = (x0-0.5)*(x0-0.5) + (y0-0.5)*(y0-0.5);
-        if( R <= 0.1*0.1 )
+        double x0 = edge_center_vec[0];
+        double y0 = edge_center_vec[1];
+        double z0 = edge_center_vec[2];
+        double R = sqrt((x0-0.5)*(x0-0.5) + (y0-0.5)*(y0-0.5));
+        edge_center_vec[0] = edge_center_vec[0] - 0.5;
+        edge_center_vec[1] = edge_center_vec[1] - 0.5;
+
+        if( R <= 0.2 && R >= 0.1 && z0>=0.4 && z0 <=0.5)
         {
-            for(int j=0; j<m1.cg[i].faces.size(); j++)
-            {
-                int face_number = m1.cg[i].faces[j];
-                for(int k = 0; k <m1.fg[face_number].edges.size(); k++)
-                {
-                    int edge_number = m1.fg[face_number].edges[k];
-                    std::vector<double> edge_dir;
-                    double LD;
-                    m1.edge_direction(edge_number, edge_dir);
-                    vec_norm(edge_dir);
-                    std::vector<double> load_dir={0.0, 0.0, 1.0}; //this is the value and direction of current density
-                    sc_prod(edge_dir, load_dir, LD);
-                    m1.eg[edge_number].Load = LD;
-                }
-            }
+            std::vector<double> edge_dir;
+            double LD;
+            m1.edge_direction(i, edge_dir);
+            std::vector<double> load_dir={0.0, 0.0, 1.0}; //this is the value and direction of current density
+            std::vector<double> load_dir1; 
+            vec_prod(load_dir, edge_center_vec, load_dir1);
+            vec_norm(load_dir1);
+            sc_prod(edge_dir, load_dir1, LD);
+            m1.eg[i].Load = LD;
         }
     }
 
@@ -242,7 +234,7 @@ int main()
     std::cout << "start BiCGSTAB ..." << std::endl;
     Eigen::BiCGSTAB<SpMat> solver;
     solver.compute(Anb);
-    solver.setMaxIterations(100);
+    solver.setMaxIterations(800);
     Eigen::VectorXd x = solver.solve(b);
     std::cout << "#iterations:     " << solver.iterations() << std::endl;
     std::cout << "estimated error: " << solver.error()      << std::endl;
@@ -281,6 +273,11 @@ int main()
                 m1.g[i].current[1] += edir[1]*value; 
                 m1.g[i].current[2] += edir[2]*value; 
          } 
+        }
+    //interpolate material properties to nodes
+    for (int i = 0; i < m1.g.size(); i++)
+        {
+            m1.g[i].phi = m1.cg[m1.g[i].cells[0]].mu;
         }
 
     std::cout << "Write results ..." << std::endl;

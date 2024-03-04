@@ -537,6 +537,7 @@ void Mesh::face_contribution(int edge_number,
     
     // calculate length of the circulation path in 1-st cell
     int cell_number = fg[face_number].cells[0];
+    double mu1 = cg[cell_number].mu;
     double dl;
     std::vector<double> cell_to_face;
     cell_center(cell_number, cell_center_vec); 
@@ -548,7 +549,7 @@ void Mesh::face_contribution(int edge_number,
     sc_prod(cell_face, cell_face, dl);
     dl = sqrt(dl)/dS;
     //dl = dS/fabs(dS);
-    double cont1 = dl/(cg[cell_number].mu);
+    double cont1 = dl;
     //calculate the sectorial area in 1-st cell
     vec_prod05(cell_face, edge_face, sec_vec);
     double sec_S1;
@@ -557,23 +558,24 @@ void Mesh::face_contribution(int edge_number,
 
     //distance to 2-nd cell center
     cell_number = fg[face_number].cells[1];
+    double mu2 = cg[cell_number].mu;
     cell_center(cell_number, cell_center_vec); 
     // distance from cell center to face center
     cell_face.clear();
     for (int i = 0; i < 3; i++)
     {
-        cell_face.push_back( face_center_vec[i]-cell_center_vec[i]);
+        cell_face.push_back(face_center_vec[i]-cell_center_vec[i]);
     }
     sc_prod(cell_face,cell_face, dl);
     dl = sqrt(dl)/dS;
     //dl = dS/fabs(dS);
-    double cont2 = dl/(cg[cell_number].mu);
+    double cont2 = dl;
     //calculate the sectorial area in 1-st cell
     vec_prod05(cell_face, edge_face, sec_vec);
     double sec_S2;
     sc_prod(sec_vec, sec_vec, sec_S2);
     sec_S2 = sqrt(sec_S2);
-    face_contrib = cont1+cont2; 
+    face_contrib = cont1/mu1 + cont2/mu2; 
     sec_S = sec_S1 + sec_S2;
 }
 
@@ -720,6 +722,23 @@ void Mesh::graddiv(int edge_number, all_edges & elist)
     edge_direction(edge_number,edir);
     sc_prod(edir, edir, dl);
     dl = sqrt(dl);
+    double mu1 = 0.0;
+    for(int i = 0; i< g[first_node].cells.size();i++)
+    {
+        mu1 += cg[g[first_node].cells[i]].mu;
+        
+    }
+    mu1 = mu1/g[first_node].cells.size();
+    double mu2=0.0;
+    for(int i = 0; i< g[second_node].cells.size();i++)
+    {
+        mu2 += cg[g[second_node].cells[i]].mu;
+        
+    }
+    mu2 = mu2/g[second_node].cells.size();
+    
+    double mu = 0.5*(mu1+mu2);
+
 
     for(int i = 0; i< g[first_node].edges.size(); i++)
     {
@@ -729,10 +748,10 @@ void Mesh::graddiv(int edge_number, all_edges & elist)
         double dS=dual_face_area(local_edge_number);
         if(first_node==eg[local_edge_number].bnode)
         {
-            elist.add(local_edge_number, dS/Vol1/dl);
+            elist.add(local_edge_number, dS/Vol1/dl/mu);
         }
         else{
-            elist.add(local_edge_number, -dS/Vol1/dl);
+            elist.add(local_edge_number, -dS/Vol1/dl/mu);
         }
     }
 
@@ -744,10 +763,10 @@ void Mesh::graddiv(int edge_number, all_edges & elist)
         double dS=dual_face_area(local_edge_number);
         if(second_node == eg[local_edge_number].bnode)
         {
-            elist.add(local_edge_number, -dS/Vol2/dl);
+            elist.add(local_edge_number, -dS/Vol2/dl/mu);
         }
         else{
-            elist.add(local_edge_number, dS/Vol2/dl);
+            elist.add(local_edge_number, dS/Vol2/dl/mu);
         }
     }
 }
