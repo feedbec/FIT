@@ -59,8 +59,10 @@ struct Cell
     int tag;
     std::vector<int> nodes;
     std::vector<int> faces;
-    Cell(){};
-    Cell(std::vector<int> & nodes0, int tag0):nodes(nodes0), tag(tag0){mu = 1.0;};
+    double B[3];
+    Cell(){B[0] = B[1] = B[2] = 0.0; mu = 1.0;};
+    Cell(std::vector<int> & nodes0, int tag0):nodes(nodes0), tag(tag0){mu = 1.0;
+    B[0] = B[1] = B[2] = 0.0;};
 };
 typedef std::vector<Cell> cell_grid;
 
@@ -289,7 +291,7 @@ bool Mesh::writemesh(std::string filename)
 		newfile << "CELL_TYPES " << cg.size() << std::endl;
 		for (size_t i = 0; i < cg.size(); i++)
 			newfile << 10 << std::endl;
-		newfile << std::endl;
+/*		newfile << std::endl;
 		newfile << "POINT_DATA " << g.size() << std::endl;
 		newfile << "SCALARS scalar_potential float" << std::endl;
 		newfile << "LOOKUP_TABLE default" << std::endl;
@@ -305,6 +307,14 @@ bool Mesh::writemesh(std::string filename)
 		newfile << "VECTORS Vector_potential float" << std::endl;
 		for (size_t i = 0; i < g.size(); i++)
 			newfile << g[i].A[0]<<" "<< g[i].A[1]<<" " << g[i].A[2] << std::endl;	
+		newfile << std::endl;
+*/
+		newfile << "CELL_DATA " << cg.size() << std::endl;
+        newfile << std::endl;
+		newfile << "VECTORS B float" << std::endl;
+		for (size_t i = 0; i < cg.size(); i++)
+			newfile << cg[i].B[0]<<" "<< cg[i].B[1]<<" " << cg[i].B[2] << std::endl;	
+
         newfile.close();
 		return true;
 	}

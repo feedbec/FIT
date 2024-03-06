@@ -20,7 +20,7 @@ int main()
     make_combination_list(4,3,combo_list);
 
 //try to make edges and faces 
-    for (int i = 0; i < m1.cg.size(); i++)  
+    for (int i = 0; i < m1.cg.size(); i++)
     {
         for (int j = 0; j<combo_list.size(); j++)
         {
@@ -146,32 +146,32 @@ int main()
 
     // apply loads to edges analytically
     std::cout<<"start setting current"<<std::endl;
-    for (int i = 0; i < m1.eg.size(); i++)
+    for (int i = 0; i < m1.cg.size(); i++)
     {
-        std::vector<double> edge_center_vec;
-        m1.edge_center(i, edge_center_vec);
-
-        double x0 = edge_center_vec[0];
-        double y0 = edge_center_vec[1];
-        double z0 = edge_center_vec[2];
-        double R = sqrt((x0-0.5)*(x0-0.5) + (y0-0.5)*(y0-0.5));
-        edge_center_vec[0] = edge_center_vec[0] - 0.5;
-        edge_center_vec[1] = edge_center_vec[1] - 0.5;
-
-        if( R <= 0.2 && R >= 0.1 && z0>=0.4 && z0 <=0.5)
-        {
-            std::vector<double> edge_dir;
-            double LD;
-            m1.edge_direction(i, edge_dir);
-            std::vector<double> load_dir={0.0, 0.0, 1.0}; //this is the value and direction of current density
-            std::vector<double> load_dir1; 
-            vec_prod(load_dir, edge_center_vec, load_dir1);
-            vec_norm(load_dir1);
-            sc_prod(edge_dir, load_dir1, LD);
-            m1.eg[i].Load = LD;
+        if(m1.cg[i].tag == 3){
+            for (int j = 0; j < m1.cg[i].faces.size(); j++)
+            {
+                int face_number = m1.cg[i].faces[j];
+                for (int k = 0; k < m1.fg[face_number].edges.size(); k++)
+                {
+                    int edge_number = m1.fg[face_number].edges[k];
+                    std::vector<double> edge_center_vec;
+                    m1.edge_center(edge_number, edge_center_vec);
+                    edge_center_vec[0] = edge_center_vec[0] - 0.5;
+                    edge_center_vec[1] = edge_center_vec[1] - 0.5;
+                    std::vector<double> edge_dir;
+                    double LD;
+                    m1.edge_direction(edge_number, edge_dir);
+                    std::vector<double> load_dir={0.0, 0.0, 1.0}; //this is the value and direction of current density
+                    std::vector<double> load_dir1; 
+                    vec_prod(load_dir, edge_center_vec, load_dir1);
+                    vec_norm(load_dir1);
+                    sc_prod(edge_dir, load_dir1, LD);
+                    m1.eg[edge_number].Load = LD;
+                }   
+            }
         }
     }
-
 
    std::cout<<"Total edges "<<m1.eg.size()<<std::endl;
    std::cout<<"Non boundary edges "<<non_boundary_edges.size()<<std::endl;
@@ -248,16 +248,25 @@ int main()
     //interpolate vector potential to nodes
     for (int i = 0; i < m1.g.size(); i++)
         {
+            double L = 0.0;
             for (int j = 0; j < m1.g[i].edges.size(); j++)
             {
                 std::vector<double> edir;
+                double dl;
                 double value = m1.eg[m1.g[i].edges[j]].Val;
                 m1.edge_direction(m1.g[i].edges[j], edir);
+                sc_prod(edir,edir,dl);
+                dl = 0.5*sqrt(dl);
+                L += dl;
                 vec_norm(edir);
-                m1.g[i].A[0] += edir[0]*value;
-                m1.g[i].A[1] += edir[1]*value; 
-                m1.g[i].A[2] += edir[2]*value; 
-         } 
+                m1.g[i].A[0] += edir[0]*value*dl;
+                m1.g[i].A[1] += edir[1]*value*dl; 
+                m1.g[i].A[2] += edir[2]*value*dl; 
+            }
+            m1.g[i].A[0] /= L;
+            m1.g[i].A[1] /= L; 
+            m1.g[i].A[2] /= L; 
+ 
         }
     
     //interpolate current to nodes
@@ -274,10 +283,52 @@ int main()
                 m1.g[i].current[2] += edir[2]*value; 
          } 
         }
+
+    //interpolate B-field to cells
+    for (int i = 0; i < m1.cg.size(); i++)
+        {
+
+            for (int j = 0; j < m1.cg[i].faces.size(); j++)
+            {
+                int face_number = m1.cg[i].faces[j];
+                std::vector<double> rotA;
+                std::vector<double> face_center_vec;
+                m1.face_center(face_number, face_center_vec);
+                double B = 0.0;
+                for(int k=0;k<m1.fg[face_number].edges.size();k++)
+                {
+                    int edge_number = m1.fg[face_number].edges[k];
+                    std::vector<double> edge_center_vec;
+                    std::vector<double> face_edge;
+                    std::vector<double> edir;
+                    std::vector<double> orient;
+                    m1.edge_center(edge_number, edge_center_vec);
+                    for(int q=0;q<3;q++)
+                        face_edge.push_back(edge_center_vec[q]-face_center_vec[q]);
+                    m1.edge_direction(edge_number,edir);
+                    vec_prod(face_edge,edir,orient);
+                    vec_norm(orient);
+                    double dS;
+                    sc_prod(orient,m1.fg[face_number].dS,dS);
+                    double dl;
+                    sc_prod(edir,edir,dl);
+                    dl = sqrt(dl);
+                    B += dl*m1.eg[edge_number].Val/dS;
+                }
+                double dS;
+                sc_prod(m1.fg[face_number].dS,m1.fg[face_number].dS,dS);
+                dS = sqrt(dS);
+                m1.cg[i].B[0] += B*m1.fg[face_number].dS[0]/dS;
+                m1.cg[i].B[1] += B*m1.fg[face_number].dS[1]/dS;
+                m1.cg[i].B[2] += B*m1.fg[face_number].dS[2]/dS;
+            } 
+        }
+
+
     //interpolate material properties to nodes
     for (int i = 0; i < m1.g.size(); i++)
         {
-            m1.g[i].phi = m1.cg[m1.g[i].cells[0]].mu;
+            m1.g[i].phi = (double) m1.cg[m1.g[i].cells[0]].tag;
         }
 
     std::cout << "Write results ..." << std::endl;
